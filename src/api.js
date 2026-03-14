@@ -244,14 +244,21 @@ export function createApi(client) {
 
   app.post("/api/schedule", async (req, res) => {
     const body = req.body || {};
-    const { channelId, content, scheduleType } = body;
-    if (!channelId || content == null || !scheduleType) {
+    const { channelId, content, messages: messagesBody, scheduleType } = body;
+    const hasContent = content != null && String(content).trim() !== "";
+    const messagesArray = Array.isArray(messagesBody) ? messagesBody.filter((m) => m != null && String(m).trim() !== "") : [];
+    const hasMessages = messagesArray.length > 0;
+    if (!channelId || !scheduleType) {
       return res.status(400).json({
-        error: "channelId, content, and scheduleType required (scheduleType: interval_minutes | daily | weekly)",
+        error: "channelId and scheduleType required (scheduleType: interval_minutes | daily | weekly)",
+      });
+    }
+    if (!hasContent && !hasMessages) {
+      return res.status(400).json({
+        error: "Provide at least one message: content (string) or messages (array of strings). For random pick, send multiple in messages.",
       });
     }
     const user = getCurrentUser(req);
-    const payload = { content: String(content).trim() || " " };
     const options = {
       timezone: body.timezone || "UTC",
       minutes: body.minutes ?? 1,
@@ -259,9 +266,12 @@ export function createApi(client) {
       day_of_week: body.day_of_week ?? 0,
     };
     try {
+      const payload = hasMessages ? undefined : { content: String(content).trim() || " " };
+      const messages = hasMessages ? messagesArray.map((m) => String(m).trim() || " ") : undefined;
       const { id, label } = addSchedule({
         channelId: String(channelId),
         payload,
+        messages,
         scheduleType,
         options,
         createdBy: user?.discordId || null,
@@ -339,13 +349,14 @@ export function createApi(client) {
     }
     const updates = {};
     if (body.content != null) updates.content = body.content;
+    if (body.messages != null) updates.messages = Array.isArray(body.messages) ? body.messages : [body.content];
     if (body.scheduleType != null) updates.scheduleType = body.scheduleType;
     if (body.timezone != null) updates.timezone = body.timezone;
     if (body.minutes != null) updates.minutes = body.minutes;
     if (body.time != null) updates.time = body.time;
     if (body.day_of_week != null) updates.day_of_week = body.day_of_week;
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "No updates provided (paused, content, scheduleType, timezone, minutes, time, day_of_week)" });
+      return res.status(400).json({ error: "No updates provided (paused, content, messages, scheduleType, timezone, minutes, time, day_of_week)" });
     }
     const result = updateSchedule(id, updates);
     if (!result) return res.status(404).json({ error: "Schedule not found" });
@@ -360,11 +371,12 @@ export function createApi(client) {
     if (!canEditSchedule(req, schedule)) {
       return res.status(403).json({ error: "You can only view your own schedules" });
     }
-    const content = schedule.payload?.content ?? "";
+    const messages = schedule.messages?.length ? schedule.messages : [schedule.payload?.content ?? ""];
     res.json({
       id: schedule.id,
       channelId: schedule.channelId,
-      content,
+      content: messages[0] ?? "",
+      messages,
       scheduleType: schedule.scheduleType,
       timezone: schedule.options?.timezone || "UTC",
       minutes: schedule.options?.minutes ?? 5,

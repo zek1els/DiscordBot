@@ -6,12 +6,42 @@
   <title>Discord Scheduler</title>
   <style>
     * { box-sizing: border-box; }
+    :root {
+      --bg: #fff;
+      --text: #222;
+      --text-muted: #666;
+      --border: #ddd;
+      --input-bg: #fff;
+      --card-bg: #f5f5f5;
+      --btn-primary: #5865f2;
+      --btn-primary-hover: #4752c4;
+      --btn-secondary: #4f545c;
+      --btn-secondary-hover: #686d73;
+      --success: #57f287;
+      --error: #ed4245;
+    }
+    [data-theme="dark"] {
+      --bg: #1e1e1e;
+      --text: #e0e0e0;
+      --text-muted: #a0a0a0;
+      --border: #404040;
+      --input-bg: #2d2d2d;
+      --card-bg: #2d2d2d;
+      --btn-primary: #5865f2;
+      --btn-primary-hover: #6d7aff;
+      --btn-secondary: #4f545c;
+      --btn-secondary-hover: #5d6269;
+      --success: #57f287;
+      --error: #ed4245;
+    }
     body {
       font-family: system-ui, sans-serif;
       margin: 0 auto;
       padding: clamp(1rem, 4vw, 2rem);
       max-width: min(960px, 92vw);
       width: 100%;
+      background: var(--bg);
+      color: var(--text);
     }
     @media (min-width: 768px) {
       body { max-width: min(960px, 88vw); }
@@ -22,31 +52,38 @@
     }
     h1 { font-size: 1.25rem; margin-bottom: 1rem; }
     label { display: block; margin-top: 0.75rem; font-weight: 500; }
-    select, textarea, input[type="text"], input[type="number"] { width: 100%; padding: 0.5rem; margin-top: 0.25rem; }
+    select, textarea, input[type="text"], input[type="number"] { width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
     textarea { min-height: 80px; resize: vertical; }
-    button { margin-top: 0.75rem; padding: 0.5rem 1rem; cursor: pointer; background: #5865f2; color: #fff; border: none; border-radius: 4px; }
-    button:hover { background: #4752c4; }
-    button.danger { background: #ed4245; }
+    button { margin-top: 0.75rem; padding: 0.5rem 1rem; cursor: pointer; background: var(--btn-primary); color: #fff; border: none; border-radius: 4px; }
+    button:hover { background: var(--btn-primary-hover); }
+    button.danger { background: var(--error); }
     button.danger:hover { background: #c03537; }
-    .section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #ddd; }
+    .section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
     .section:last-of-type { border-bottom: none; }
     .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .row label { margin-top: 0; }
-    .error { color: #ed4245; margin-top: 0.5rem; }
-    .success { color: #57f287; margin-top: 0.5rem; }
+    .error { color: var(--error); margin-top: 0.5rem; }
+    .success { color: var(--success); margin-top: 0.5rem; }
     ul { list-style: none; padding: 0; margin: 0; }
-    li { padding: 0.5rem; background: #f5f5f5; border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
-    .schedule-preview { font-size: 0.875rem; color: #666; }
+    li { padding: 0.5rem; background: var(--card-bg); border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
+    .schedule-preview { font-size: 0.875rem; color: var(--text-muted); }
     .schedule-where { display: block; font-size: 0.8rem; color: #5865f2; margin-top: 0.15rem; }
-    .muted { color: #666; font-size: 0.875rem; }
-    .next-run { display: block; font-size: 0.8rem; color: #57f287; margin-top: 0.25rem; }
+    .muted { color: var(--text-muted); font-size: 0.875rem; }
+    .next-run { display: block; font-size: 0.8rem; color: var(--success); margin-top: 0.25rem; }
     .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-left: 0.25rem; }
-    .btn-secondary { background: #4f545c; color: #fff; }
-    .btn-secondary:hover { background: #686d73; }
+    .btn-secondary { background: var(--btn-secondary); color: #fff; }
+    .btn-secondary:hover { background: var(--btn-secondary-hover); }
     #editScheduleModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10; align-items: center; justify-content: center; }
     #editScheduleModal.show { display: flex; }
-    #editScheduleModal .modal-inner { background: #fff; padding: 1.25rem; border-radius: 8px; max-width: 480px; width: 100%; max-height: 90vh; overflow: auto; }
+    #editScheduleModal .modal-inner { background: var(--bg); color: var(--text); padding: 1.25rem; border-radius: 8px; max-width: 480px; width: 100%; max-height: 90vh; overflow: auto; border: 1px solid var(--border); }
     #editScheduleModal h3 { margin-top: 0; }
+    .nav { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .nav a { color: var(--text-muted); text-decoration: none; padding: 0.35rem 0.75rem; border-radius: 4px; }
+    .nav a:hover, .nav a.active { color: var(--text); background: var(--card-bg); }
+    .page { display: none; }
+    .page.active { display: block; }
+    .message-row { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem; }
+    .message-row textarea { flex: 1; min-height: 60px; }
   </style>
 </head>
 <body>
@@ -59,78 +96,96 @@
     <p id="redirectUriHint" class="muted" style="margin-top: 0.75rem; font-size: 0.8rem; display: none;"></p>
     <a id="redirectUriLink" href="#" target="_blank" rel="noopener" style="font-size: 0.8rem; word-break: break-all; display: none;"></a>
     <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
+    <p style="margin-top: 1rem;"><button type="button" id="darkModeBtnLogin" class="btn-sm btn-secondary">Dark mode</button></p>
   </div>
 
   <div id="appPanel" style="display: none;">
   <h1>Discord Scheduler</h1>
-  <p>Send or schedule plain text messages to a channel. Bot must be in the server.</p>
-  <p style="font-size: 0.875rem; color: #666;"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span></p>
+  <p style="font-size: 0.875rem; color: var(--text-muted);"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span> <span style="margin-left: 0.5rem;"><button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode">Dark</button></span></p>
 
-  <div id="botServersSection" class="section" style="display: none;">
-    <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Servers the bot is in</h2>
-    <ul id="botServersList"></ul>
+  <nav class="nav" id="appNav">
+    <a href="#" data-page="dashboard" class="active">Dashboard</a>
+    <a href="#" data-page="schedules">Schedules</a>
+    <a href="#" data-page="logs" id="navLogs" style="display: none;">Deleted logs</a>
+  </nav>
+
+  <div id="pageDashboard" class="page active">
+    <div class="section">
+      <div class="row" style="align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+        <label for="guild" style="margin-top: 0;">Server</label>
+        <button type="button" id="loadServersBtn">Load servers</button>
+      </div>
+      <select id="guild"><option value="">Click Load servers</option></select>
+      <label for="channel">Channel</label>
+      <select id="channel"><option value="">Select a server first</option></select>
+      <label for="content">Message</label>
+      <textarea id="content" placeholder="Your message text"></textarea>
+      <button id="sendBtn">Send now</button>
+      <div id="sendStatus"></div>
+    </div>
+    <div id="botServersSection" class="section" style="display: none;">
+      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Servers the bot is in</h2>
+      <ul id="botServersList"></ul>
+    </div>
   </div>
 
-  <div id="deletedLogSection" class="section" style="display: none;">
-    <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Deleted message logging</h2>
-    <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">When a message is deleted anywhere in the selected server, the bot will post a log to the channel below.</p>
-    <label for="deletedLogGuild">Server to monitor</label>
-    <select id="deletedLogGuild"><option value="">Load servers first</option></select>
-    <label for="deletedLogChannel">Channel where bot sends logs</label>
-    <select id="deletedLogChannel"><option value="">Select a server first</option></select>
-    <div class="row" style="margin-top: 0.5rem; gap: 0.5rem;">
-      <button type="button" id="deletedLogSaveBtn">Save</button>
-      <button type="button" id="deletedLogClearBtn" class="btn-secondary">Stop logging for this server</button>
+  <div id="pageSchedules" class="page">
+    <div class="section">
+      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Schedule recurring message</h2>
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Add one or more messages: each time the schedule runs, one will be picked at random.</p>
+      <label for="scheduleGuild">Server</label>
+      <select id="scheduleGuild"><option value="">Load servers on Dashboard first</option></select>
+      <label for="scheduleChannel">Channel</label>
+      <select id="scheduleChannel"><option value="">Select a server first</option></select>
+      <label style="margin-top: 0.75rem;">Messages (one picked at random each time)</label>
+      <div id="scheduleMessagesList"></div>
+      <button type="button" id="addScheduleMessageBtn" class="btn-secondary btn-sm">Add message</button>
+      <label for="scheduleType" style="margin-top: 1rem;">Repeat</label>
+      <select id="scheduleType">
+        <option value="interval_minutes">Every N minutes</option>
+        <option value="daily">Daily at a time</option>
+        <option value="weekly">Weekly (e.g. every 7 days)</option>
+      </select>
+      <div id="optsInterval" class="row">
+        <label>Minutes <input type="number" id="minutes" value="5" min="1" max="60" style="width: 60px;"></label>
+      </div>
+      <div id="optsDaily" class="row" style="display: none;">
+        <label>Hour <select id="timeHourDaily" style="width: 70px;"></select></label>
+        <label>Minute <select id="timeMinDaily" style="width: 70px;"></select></label>
+        <label>Timezone <select id="timezoneDaily" style="width: 200px;"></select></label>
+      </div>
+      <div id="optsWeekly" class="row" style="display: none;">
+        <label>Day <select id="dayOfWeek" style="width: 120px;">
+          <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+          <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+        </select></label>
+        <label>Hour <select id="timeHourWeekly" style="width: 70px;"></select></label>
+        <label>Minute <select id="timeMinWeekly" style="width: 70px;"></select></label>
+        <label>Timezone <select id="timezoneWeekly" style="width: 200px;"></select></label>
+      </div>
+      <button id="scheduleBtn">Create schedule</button>
+      <div id="scheduleStatus"></div>
     </div>
-    <p id="deletedLogStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
+    <div class="section">
+      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">All scheduled messages</h2>
+      <ul id="scheduleList"></ul>
+    </div>
   </div>
 
-  <div class="section">
-    <div class="row" style="align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-      <label for="guild" style="margin-top: 0;">Server</label>
-      <button type="button" id="loadServersBtn">Load servers</button>
+  <div id="pageLogs" class="page">
+    <div id="deletedLogSection" class="section">
+      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Deleted message logging</h2>
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">When a message is deleted anywhere in the selected server, the bot will post a log to the channel below.</p>
+      <label for="deletedLogGuild">Server to monitor</label>
+      <select id="deletedLogGuild"><option value="">Load servers first</option></select>
+      <label for="deletedLogChannel">Channel where bot sends logs</label>
+      <select id="deletedLogChannel"><option value="">Select a server first</option></select>
+      <div class="row" style="margin-top: 0.5rem; gap: 0.5rem;">
+        <button type="button" id="deletedLogSaveBtn">Save</button>
+        <button type="button" id="deletedLogClearBtn" class="btn-secondary">Stop logging for this server</button>
+      </div>
+      <p id="deletedLogStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
     </div>
-    <select id="guild"><option value="">Click Load servers</option></select>
-    <label for="channel">Channel</label>
-    <select id="channel"><option value="">Select a server first</option></select>
-    <label for="content">Message</label>
-    <textarea id="content" placeholder="Your message text"></textarea>
-    <button id="sendBtn">Send now</button>
-    <div id="sendStatus"></div>
-  </div>
-
-  <div class="section">
-    <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Schedule recurring message</h2>
-    <label for="scheduleType">Repeat</label>
-    <select id="scheduleType">
-      <option value="interval_minutes">Every N minutes</option>
-      <option value="daily">Daily at a time</option>
-      <option value="weekly">Weekly (e.g. every 7 days)</option>
-    </select>
-    <div id="optsInterval" class="row">
-      <label>Minutes <input type="number" id="minutes" value="5" min="1" max="60" style="width: 60px;"></label>
-    </div>
-    <div id="optsDaily" class="row" style="display: none;">
-      <label>Hour <select id="timeHourDaily" style="width: 70px;"></select></label>
-      <label>Minute <select id="timeMinDaily" style="width: 70px;"></select></label>
-      <label>Timezone <select id="timezoneDaily" style="width: 200px;"></select></label>
-    </div>
-    <div id="optsWeekly" class="row" style="display: none;">
-      <label>Day <select id="dayOfWeek" style="width: 120px;">
-        <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
-        <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
-      </select></label>
-      <label>Hour <select id="timeHourWeekly" style="width: 70px;"></select></label>
-      <label>Minute <select id="timeMinWeekly" style="width: 70px;"></select></label>
-      <label>Timezone <select id="timezoneWeekly" style="width: 200px;"></select></label>
-    </div>
-    <button id="scheduleBtn">Create schedule</button>
-    <div id="scheduleStatus"></div>
-  </div>
-
-  <div class="section">
-    <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">All scheduled messages</h2>
-    <ul id="scheduleList"></ul>
   </div>
   </div>
 
@@ -138,8 +193,15 @@
     <div class="modal-inner">
       <h3>Edit schedule</h3>
       <input type="hidden" id="editScheduleId">
-      <label for="editContent">Message</label>
-      <textarea id="editContent" placeholder="Message text" style="min-height: 60px;"></textarea>
+      <div id="editSingleMessageWrap">
+        <label for="editContent">Message</label>
+        <textarea id="editContent" placeholder="Message text" style="min-height: 60px;"></textarea>
+      </div>
+      <div id="editMessagesWrap" style="display: none;">
+        <label>Messages (one picked at random each time)</label>
+        <div id="editMessagesList"></div>
+        <button type="button" id="editAddMessageBtn" class="btn-secondary btn-sm">Add message</button>
+      </div>
       <label for="editScheduleType">Repeat</label>
       <select id="editScheduleType">
         <option value="interval_minutes">Every N minutes</option>
@@ -214,12 +276,12 @@
       if (window._isAdmin) {
         document.getElementById("adminBadge").style.display = "inline";
         document.getElementById("botServersSection").style.display = "block";
-        document.getElementById("deletedLogSection").style.display = "block";
+        document.getElementById("navLogs").style.display = "";
         loadBotServers();
       } else {
         document.getElementById("adminBadge").style.display = "none";
         document.getElementById("botServersSection").style.display = "none";
-        document.getElementById("deletedLogSection").style.display = "none";
+        document.getElementById("navLogs").style.display = "none";
       }
       loadChannelsAndCache();
     }
@@ -299,12 +361,26 @@
       document.getElementById("editScheduleModal").classList.remove("show");
     });
 
+    document.getElementById("editAddMessageBtn").addEventListener("click", () => {
+      const row = renderScheduleMessageRow();
+      row.querySelector("button").addEventListener("click", () => row.remove());
+      document.getElementById("editMessagesList").appendChild(row);
+    });
+
     document.getElementById("editScheduleSaveBtn").addEventListener("click", async () => {
       const id = document.getElementById("editScheduleId").value;
-      const content = document.getElementById("editContent").value.trim();
       const scheduleType = document.getElementById("editScheduleType").value;
-      const body = { content: content || " ", scheduleType };
+      const body = { scheduleType };
       body.timezone = document.getElementById("editTimezoneDaily").value || "UTC";
+      const multiWrap = document.getElementById("editMessagesWrap");
+      if (multiWrap.style.display !== "none") {
+        const editRows = multiWrap.querySelectorAll(".message-row");
+        const messages = Array.from(editRows).map(row => row.querySelector("textarea")?.value?.trim()).filter(Boolean);
+        if (messages.length === 0) { alert("Add at least one message."); return; }
+        body.messages = messages;
+      } else {
+        body.content = document.getElementById("editContent").value.trim() || " ";
+      }
       if (scheduleType === "interval_minutes") {
         body.minutes = parseInt(document.getElementById("editMinutes").value, 10) || 5;
       }
@@ -352,6 +428,8 @@
       }
       window._guildsCache = data;
       guildEl.innerHTML = "<option value=''>Choose server</option>" + data.guilds.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join("");
+      const scheduleGuildEl = document.getElementById("scheduleGuild");
+      scheduleGuildEl.innerHTML = "<option value=''>Choose server</option>" + data.guilds.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join("");
       if (window._isAdmin) {
         const dlg = document.getElementById("deletedLogGuild");
         dlg.innerHTML = "<option value=''>Choose server</option>" + data.guilds.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join("");
@@ -359,6 +437,80 @@
       }
       loadSchedules();
     }
+
+    document.getElementById("scheduleGuild").addEventListener("change", () => {
+      const id = document.getElementById("scheduleGuild").value;
+      const chEl = document.getElementById("scheduleChannel");
+      chEl.innerHTML = "<option value=''>Choose channel</option>";
+      if (!id || !window._guildsCache) return;
+      const g = window._guildsCache.guilds.find(x => x.id === id);
+      if (g) g.channels.forEach(c => { chEl.innerHTML += `<option value="${c.id}">${escapeHtml(c.name)}</option>`; });
+    });
+
+    function getScheduleMessageRows() {
+      return document.querySelectorAll("#scheduleMessagesList .message-row");
+    }
+    function getScheduleMessages() {
+      return Array.from(getScheduleMessageRows()).map(row => row.querySelector("textarea")?.value?.trim()).filter(Boolean);
+    }
+    function renderScheduleMessageRow(value = "") {
+      const div = document.createElement("div");
+      div.className = "message-row";
+      const textarea = document.createElement("textarea");
+      textarea.placeholder = "Message text";
+      textarea.value = value;
+      textarea.style.minHeight = "60px";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-sm danger";
+      btn.textContent = "Remove";
+      btn.addEventListener("click", () => { div.remove(); });
+      div.appendChild(textarea);
+      div.appendChild(btn);
+      return div;
+    }
+    function initScheduleMessagesList() {
+      const list = document.getElementById("scheduleMessagesList");
+      list.innerHTML = "";
+      list.appendChild(renderScheduleMessageRow());
+    }
+    document.getElementById("addScheduleMessageBtn").addEventListener("click", () => {
+      document.getElementById("scheduleMessagesList").appendChild(renderScheduleMessageRow());
+    });
+    initScheduleMessagesList();
+
+    document.getElementById("appNav").addEventListener("click", (e) => {
+      const a = e.target.closest("a[data-page]");
+      if (!a) return;
+      e.preventDefault();
+      const page = a.dataset.page;
+      document.querySelectorAll(".nav a").forEach(l => l.classList.remove("active"));
+      a.classList.add("active");
+      document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+      const panel = document.getElementById("page" + page.charAt(0).toUpperCase() + page.slice(1));
+      if (panel) panel.classList.add("active");
+    });
+
+    (function initDarkMode() {
+      const stored = localStorage.getItem("discord_scheduler_theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const dark = stored === "dark" || (stored !== "light" && prefersDark);
+      document.documentElement.setAttribute("data-theme", dark ? "dark" : "");
+      function updateLabels() {
+        const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+        document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin").forEach(b => { if (b) b.textContent = isDark ? "Light" : "Dark"; });
+      }
+      updateLabels();
+      document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin").forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener("click", () => {
+          const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+          document.documentElement.setAttribute("data-theme", isDark ? "" : "dark");
+          localStorage.setItem("discord_scheduler_theme", isDark ? "light" : "dark");
+          updateLabels();
+        });
+      });
+    })();
 
     loadServersBtn.addEventListener("click", () => loadChannelsAndCache());
 
@@ -447,14 +599,16 @@
     });
 
     scheduleBtn.addEventListener("click", async () => {
-      const channelId = channelEl.value;
-      const content = contentEl.value.trim();
+      const channelId = document.getElementById("scheduleChannel").value;
+      const messages = getScheduleMessages();
       const scheduleType = scheduleTypeEl.value;
-      if (!channelId || !content) {
-        show(scheduleStatus, "Pick a channel and enter message.", true);
+      if (!channelId || messages.length === 0) {
+        show(scheduleStatus, "Pick a channel and add at least one message.", true);
         return;
       }
-      const body = { channelId, content, scheduleType, timezone: "UTC" };
+      const body = { channelId, scheduleType, timezone: "UTC" };
+      if (messages.length === 1) body.content = messages[0];
+      else body.messages = messages;
       if (scheduleType === "interval_minutes") body.minutes = parseInt(document.getElementById("minutes").value, 10) || 5;
       if (scheduleType === "daily") {
         const h = document.getElementById("timeHourDaily").value;
@@ -559,7 +713,17 @@
             if (!r.ok) return;
             const s = await r.json();
             document.getElementById("editScheduleId").value = s.id;
-            document.getElementById("editContent").value = s.content || "";
+            const multi = s.messages && s.messages.length > 1;
+            document.getElementById("editSingleMessageWrap").style.display = multi ? "none" : "block";
+            document.getElementById("editMessagesWrap").style.display = multi ? "block" : "none";
+            document.getElementById("editContent").value = (s.messages && s.messages[0]) || s.content || "";
+            const editList = document.getElementById("editMessagesList");
+            editList.innerHTML = "";
+            (s.messages || [s.content || ""]).forEach((msg) => {
+              const row = renderScheduleMessageRow(msg);
+              row.querySelector("button").addEventListener("click", () => row.remove());
+              editList.appendChild(row);
+            });
             document.getElementById("editScheduleType").value = s.scheduleType || "interval_minutes";
             document.getElementById("editMinutes").value = s.minutes ?? 5;
             document.getElementById("editTimeHourDaily").value = parseInt((s.time || "00:00").split(":")[0], 10) || 0;

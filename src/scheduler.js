@@ -96,7 +96,10 @@ function startJob(schedule) {
       try {
         const channel = await client.channels.fetch(s.channelId).catch(() => null);
         if (!channel) return;
-        await channel.send(s.payload);
+        const content = s.messages?.length > 0
+          ? s.messages[Math.floor(Math.random() * s.messages.length)]
+          : (s.payload?.content ?? " ");
+        await channel.send({ content: String(content).trim() || " " });
       } catch (e) {
         console.error("Scheduled message failed:", scheduleId, e);
       }
@@ -116,17 +119,18 @@ function stopJob(id) {
 
 /**
  * Add a new schedule.
- * @param {{ channelId: string, payload: object, scheduleType: string, options: object, createdBy?: string }} params
+ * @param {{ channelId: string, payload?: object, messages?: string[], scheduleType: string, options: object, createdBy?: string }} params
  * @returns {{ id: string, label: string }}
  */
-export function addSchedule({ channelId, payload, scheduleType, options = {}, createdBy = null }) {
+export function addSchedule({ channelId, payload, messages, scheduleType, options = {}, createdBy = null }) {
   const { cron: cronExpr, label } = buildCron(scheduleType, options);
   const id = generateId();
   const timezone = options.timezone || "UTC";
   const schedule = {
     id,
     channelId,
-    payload,
+    payload: payload ?? (messages?.length ? { content: messages[0] } : { content: " " }),
+    messages: Array.isArray(messages) && messages.length > 0 ? messages.map((m) => String(m).trim() || " ") : undefined,
     cron: cronExpr,
     timezone,
     label,
@@ -205,17 +209,24 @@ export function getNextRun(schedule) {
 
 /**
  * List all schedules (includes createdBy and paused for filtering/UI).
- * @returns {Array<{ id: string, channelId: string, label: string, preview: string, createdBy: string|null, paused: boolean }>}
+ * @returns {Array<{ id: string, channelId: string, label: string, preview: string, createdBy: string|null, paused: boolean, messagesCount?: number }>}
  */
 export function listSchedules() {
-  return loadSchedules().map((s) => ({
-    id: s.id,
-    channelId: s.channelId,
-    label: s.label,
-    preview: (s.payload.content || (s.payload.embeds?.[0]?.title || s.payload.embeds?.[0]?.description) || "").slice(0, 50),
-    createdBy: s.createdBy ?? null,
-    paused: !!s.paused,
-  }));
+  return loadSchedules().map((s) => {
+    const multi = s.messages?.length;
+    const preview = multi > 1
+      ? `${multi} messages (random)`
+      : (s.messages?.[0] || s.payload?.content || (s.payload?.embeds?.[0]?.title || s.payload?.embeds?.[0]?.description) || "").slice(0, 50);
+    return {
+      id: s.id,
+      channelId: s.channelId,
+      label: s.label,
+      preview,
+      createdBy: s.createdBy ?? null,
+      paused: !!s.paused,
+      messagesCount: multi,
+    };
+  });
 }
 
 /**
@@ -234,9 +245,9 @@ export function setSchedulePaused(id, paused) {
 }
 
 /**
- * Update an existing schedule (content, scheduleType, options). Rebuilds cron and restarts the job.
+ * Update an existing schedule (content, messages, scheduleType, options). Rebuilds cron and restarts the job.
  * @param {string} id
- * @param {{ content?: string, scheduleType?: string, timezone?: string, minutes?: number, time?: string, day_of_week?: number }} updates
+ * @param {{ content?: string, messages?: string[], scheduleType?: string, timezone?: string, minutes?: number, time?: string, day_of_week?: number }} updates
  * @returns {{ id: string, label: string } | null}
  */
 export function updateSchedule(id, updates) {
@@ -244,7 +255,17 @@ export function updateSchedule(id, updates) {
   const idx = schedules.findIndex((s) => s.id === id);
   if (idx === -1) return null;
   const s = schedules[idx];
-  if (updates.content != null) s.payload = { ...s.payload, content: String(updates.content).trim() || " " };
+  if (updates.messages != null) {
+    s.messages = Array.isArray(updates.messages) && updates.messages.length > 0
+      ? updates.messages.map((m) => String(m).trim() || " ")
+      : undefined;
+    s.payload = { ...s.payload, content: s.messages?.[0] || " " };
+  }
+  if (updates.content != null) {
+    s.payload = { ...s.payload, content: String(updates.content).trim() || " " };
+    if (!s.messages) s.messages = [s.payload.content];
+    else s.messages[0] = s.payload.content;
+  }
   if (updates.scheduleType != null) s.scheduleType = updates.scheduleType;
   if (updates.timezone != null) s.options = { ...s.options, timezone: updates.timezone };
   if (updates.minutes != null) s.options = { ...s.options, minutes: updates.minutes };
