@@ -5,6 +5,7 @@ import { initScheduler, addSchedule, listSchedules, removeSchedule } from "./sch
 import { buildMessagePayload, hasMessageContent } from "./embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "./savedMessages.js";
 import { getLogChannelIdsForGuild, addLogChannel, removeLogChannel } from "./deletedLogConfig.js";
+import { list as listCustomCommands, get as getCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 
 config();
 
@@ -180,6 +181,40 @@ client.on("guildCreate", async (guild) => {
     console.log(`Slash commands registered in new guild: ${guild.name} (${guild.id}).`);
   } catch (e) {
     console.error("Failed to register slash commands for new guild:", e);
+  }
+});
+
+client.on("messageCreate", async (message) => {
+  if (message.author?.bot) return;
+  const content = message.content?.trim();
+  if (!content) return;
+  const prefix = getCustomCommandPrefix();
+  if (!content.startsWith(prefix)) return;
+  const afterPrefix = content.slice(prefix.length).trim();
+  const firstSpace = afterPrefix.indexOf(" ");
+  const commandName = firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace);
+  const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
+  const cmd = getCustomCommand(commandName);
+  if (!cmd) return;
+  const author = message.author;
+  const mentionedUsers = message.mentions?.users ? Array.from(message.mentions.users.values()) : [];
+  const target = mentionedUsers[0] ?? null;
+  const replacements = {
+    "{author}": author ? `<@${author.id}>` : "someone",
+    "{author_username}": author?.displayName ?? author?.username ?? "someone",
+    "{target}": target ? `<@${target.id}>` : "",
+    "{target_username}": target ? (target.displayName ?? target.username) : "",
+    "{args}": rest,
+  };
+  let text = cmd.template;
+  for (const [key, value] of Object.entries(replacements)) {
+    text = text.split(key).join(value);
+  }
+  if (!text.trim()) return;
+  try {
+    await message.channel.send({ content: text.trim() });
+  } catch (e) {
+    console.error("Custom command reply failed:", e);
   }
 });
 
