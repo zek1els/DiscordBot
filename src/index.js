@@ -244,7 +244,7 @@ client.on("messageCreate", async (message) => {
 });
 
 client.on("messageDelete", async (message) => {
-  if (message.author?.id === client.user?.id) return;
+  if (message.author?.bot) return;
   const guildId = message.guildId ?? message.guild?.id;
   if (!guildId) return;
   const logChannelIds = getLogChannelIdsForGuild(guildId);
