@@ -88,20 +88,38 @@
 </head>
 <body>
   <div id="loginPanel" style="display: none;">
-    <h1>Log in</h1>
-    <p>Connect your Discord account to manage your scheduled messages.</p>
-    <div id="discordLoginWrap" class="section">
+    <h1>Discord Scheduler</h1>
+    <p class="muted" style="margin-bottom: 1rem;">Create an account or log in. You can link Discord after logging in.</p>
+    <div class="section" style="margin-bottom: 1rem;">
+      <h2 style="font-size: 1rem;">Create account</h2>
+      <label for="registerEmail">Email</label>
+      <input type="email" id="registerEmail" placeholder="you@example.com" autocomplete="email">
+      <label for="registerPassword">Password (min 6 characters)</label>
+      <input type="password" id="registerPassword" placeholder="••••••••" autocomplete="new-password">
+      <button type="button" id="registerBtn">Register</button>
+      <p id="registerStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
+    </div>
+    <div class="section" style="margin-bottom: 1rem;">
+      <h2 style="font-size: 1rem;">Log in</h2>
+      <label for="loginEmail">Email</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      <button type="button" id="loginBtn">Log in</button>
+      <p id="loginStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
+    </div>
+    <div id="discordLoginWrap" class="section" style="display: none;">
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Or log in with Discord (only if you already linked your account)</p>
       <a href="/api/auth/discord" id="discordLoginBtn" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #5865f2; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 500;">Login with Discord</a>
     </div>
     <p id="redirectUriHint" class="muted" style="margin-top: 0.75rem; font-size: 0.8rem; display: none;"></p>
     <a id="redirectUriLink" href="#" target="_blank" rel="noopener" style="font-size: 0.8rem; word-break: break-all; display: none;"></a>
-    <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
     <p style="margin-top: 1rem;"><button type="button" id="darkModeBtnLogin" class="btn-sm btn-secondary">Dark mode</button></p>
   </div>
 
   <div id="appPanel" style="display: none;">
   <h1>Discord Scheduler</h1>
-  <p style="font-size: 0.875rem; color: var(--text-muted);"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span> <span style="margin-left: 0.5rem;"><button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode">Dark</button></span></p>
+  <p style="font-size: 0.875rem; color: var(--text-muted);"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span> <span id="discordLinkWrap" style="display: none;"> · <span id="discordLinkText"></span> <a href="/api/auth/discord?link=1" id="linkDiscordLink" style="display: none;">Link Discord</a> <button type="button" id="unlinkDiscordBtn" class="btn-sm btn-secondary" style="display: none;">Unlink Discord</button></span> <span style="margin-left: 0.5rem;"><button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode">Dark</button></span></p>
   <p class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;">On Railway: set <code>DATA_DIR</code> to a volume path (e.g. <code>/data</code>) so schedules, custom commands, and deleted-log channels persist across restarts.</p>
 
   <nav class="nav" id="appNav">
@@ -305,6 +323,7 @@
       if (!r.ok) return false;
       const data = await r.json().catch(() => ({}));
       window._isAdmin = !!data.isAdmin;
+      window._user = data.user || null;
       return true;
     }
 
@@ -320,6 +339,22 @@
         document.getElementById("adminBadge").style.display = "none";
         document.getElementById("botServersSection").style.display = "none";
         document.getElementById("navLogs").style.display = "none";
+      }
+      const discordWrap = document.getElementById("discordLinkWrap");
+      const linkText = document.getElementById("discordLinkText");
+      const linkDiscordLink = document.getElementById("linkDiscordLink");
+      const unlinkBtn = document.getElementById("unlinkDiscordBtn");
+      if (window._user?.discordId && window._user?.username) {
+        discordWrap.style.display = "inline";
+        linkText.textContent = "Linked: " + (window._user.username || "Discord");
+        linkText.style.display = "inline";
+        linkDiscordLink.style.display = "none";
+        unlinkBtn.style.display = "inline";
+      } else {
+        discordWrap.style.display = "inline";
+        linkText.style.display = "none";
+        linkDiscordLink.style.display = "inline";
+        unlinkBtn.style.display = "none";
       }
       loadChannelsAndCache();
     }
@@ -341,6 +376,49 @@
       e.preventDefault();
       await fetch("/api/logout", fetchOpts({ method: "POST" }));
       showLogin();
+    });
+
+    document.getElementById("registerBtn").addEventListener("click", async () => {
+      const email = document.getElementById("registerEmail").value.trim();
+      const password = document.getElementById("registerPassword").value;
+      const statusEl = document.getElementById("registerStatus");
+      if (!email || !password) { statusEl.textContent = "Enter email and password."; statusEl.className = "error"; return; }
+      const r = await fetch("/api/auth/register", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email, password }) }));
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        statusEl.textContent = "Account created. Loading…";
+        statusEl.className = "success";
+        await checkAuth();
+        showApp();
+      } else {
+        statusEl.textContent = data.error || "Registration failed.";
+        statusEl.className = "error";
+      }
+    });
+
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const statusEl = document.getElementById("loginStatus");
+      if (!email || !password) { statusEl.textContent = "Enter email and password."; statusEl.className = "error"; return; }
+      const r = await fetch("/api/auth/login", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email, password }) }));
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        statusEl.textContent = "";
+        await checkAuth();
+        showApp();
+      } else {
+        statusEl.textContent = data.error || "Login failed.";
+        statusEl.className = "error";
+      }
+    });
+
+    document.getElementById("unlinkDiscordBtn").addEventListener("click", async () => {
+      const r = await fetch("/api/auth/unlink-discord", fetchOpts({ method: "POST", headers: headers() }));
+      if (r.ok) {
+        await checkAuth();
+        showApp();
+      }
     });
 
     function show(el, msg, isError) {
@@ -887,14 +965,22 @@
         const link = document.getElementById("redirectUriLink");
         if (link) { link.href = redirectData.redirectUri; link.textContent = redirectData.redirectUri; link.style.display = "block"; }
       } else if (hintEl) hintEl.style.display = "none";
-      if (!config.discordLogin && loginStatus) loginStatus.textContent = "Discord login is not configured. Set DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, and PUBLIC_URL.";
       const params = new URLSearchParams(location.search);
       const err = params.get("error");
-      if (err && loginStatus) {
-        const msg = { discord_config: "Discord login not configured", discord_token: "Invalid redirect URI or Discord auth failed. Check that the redirect URL in Discord matches exactly.", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
-        loginStatus.textContent = msg;
-        loginStatus.style.color = "#ed4245";
+      const linked = params.get("linked");
+      const statusEl = document.getElementById("loginStatus");
+      const errMsg = { discord_config: "Discord not configured.", discord_token: "Invalid redirect URI or Discord auth failed.", discord_user: "Could not load Discord user.", discord_failed: "Discord auth failed.", discord_not_linked: "No account linked to this Discord. Create an account and use Link Discord after logging in.", link_requires_login: "Log in first, then use Link Discord." }[err];
+      if (errMsg && statusEl) {
+        statusEl.textContent = errMsg;
+        statusEl.style.color = "#ed4245";
+        statusEl.className = "error";
       }
+      if (linked === "1" && statusEl) {
+        statusEl.textContent = "Discord linked successfully.";
+        statusEl.style.color = "var(--success)";
+        statusEl.className = "success";
+      }
+      if (err || linked) history.replaceState({}, "", location.pathname || "/");
     }
 
     (async () => {

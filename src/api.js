@@ -6,6 +6,7 @@ import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedul
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
+import { create as createUser, validate as validateUser, getById, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser } from "./users.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,7 @@ const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-/** @type {Map<string, { discordId: string, username: string }>} */
+/** @type {Map<string, { userId: string, email: string, discordId?: string, username?: string }>} */
 const sessions = new Map();
 
 function getCookie(req, name) {
@@ -32,11 +33,17 @@ function getCookie(req, name) {
   return m ? decodeURIComponent(m[1].trim()) : null;
 }
 
-/** Returns current user for session, or null for API key (API key = full admin). */
+/** Returns current user for session (userId, email, discordId?, username?), or null for API key. */
 function getCurrentUser(req) {
   const sessionToken = getCookie(req, "admin_session");
   if (sessionToken) return sessions.get(sessionToken) || null;
   return null;
+}
+
+/** Owner id for schedules: Discord when linked, else app userId. */
+function getOwnerId(user) {
+  if (!user) return null;
+  return user.discordId || user.userId || null;
 }
 
 function isAuthenticated(req) {
@@ -52,7 +59,7 @@ function isAdmin(req) {
   if (apiKey && key === apiKey) return true;
   const user = getCurrentUser(req);
   if (!user) return false;
-  return ADMIN_DISCORD_IDS.length === 0 || ADMIN_DISCORD_IDS.includes(user.discordId);
+  return ADMIN_DISCORD_IDS.length === 0 || (user.discordId && ADMIN_DISCORD_IDS.includes(user.discordId));
 }
 
 /**
@@ -65,13 +72,13 @@ export function createApi(client) {
   app.use(express.json());
 
   function auth(req, res, next) {
-    if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
-      if (!isAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
-      return next();
+    if (isAuthenticated(req)) return next();
+    if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET) || hasAnyUser()) {
+      return res.status(401).json({ error: "Unauthorized" });
     }
     const ip = req.ip || req.socket.remoteAddress || "";
     if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
-      return res.status(403).json({ error: "API only allowed from localhost when Discord login is not configured" });
+      return res.status(403).json({ error: "API only allowed from localhost when no accounts exist" });
     }
     next();
   }
@@ -79,27 +86,66 @@ export function createApi(client) {
   // Serve web UI
   app.use(express.static(join(__dirname, "..", "public")));
 
-  // Discord OAuth2: redirect to Discord
+  // Create account (register) – public
+  app.post("/api/auth/register", (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    try {
+      createUser(String(email).trim(), String(password));
+      const user = validateUser(String(email).trim(), String(password));
+      if (!user) return res.status(500).json({ error: "Account created but login failed" });
+      const sessionToken = randomBytes(24).toString("hex");
+      sessions.set(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
+      res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
+      return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
+    } catch (e) {
+      return res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Log in with email + password – public
+  app.post("/api/auth/login", (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    const user = validateUser(String(email).trim(), String(password));
+    if (!user) return res.status(401).json({ error: "Invalid email or password" });
+    const sessionToken = randomBytes(24).toString("hex");
+    sessions.set(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
+    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
+    return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
+  });
+
+  // Discord OAuth2: redirect to Discord (?link=1 to link when already logged in)
   app.get("/api/auth/discord", (req, res) => {
     if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET || !PUBLIC_URL) {
-      return res.status(503).json({ error: "Discord login not configured (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, PUBLIC_URL)" });
+      return res.status(503).json({ error: "Discord not configured (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, PUBLIC_URL)" });
     }
     const redirectUri = PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback";
+    const isLink = req.query.link === "1";
+    const sessionToken = getCookie(req, "admin_session");
+    const session = sessionToken ? sessions.get(sessionToken) : null;
+    if (isLink && (!session || !session.userId)) {
+      return res.redirect("/?error=link_requires_login");
+    }
     const url = new URL("https://discord.com/api/oauth2/authorize");
     url.searchParams.set("client_id", DISCORD_CLIENT_ID);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("scope", "identify");
+    url.searchParams.set("state", isLink ? "link" : "login");
     res.redirect(url.toString());
   });
 
-  // Discord OAuth2: callback, exchange code for user, create session
+  // Discord OAuth2: callback (link account or login with Discord)
   app.get("/api/auth/discord/callback", async (req, res) => {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code || !DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET || !PUBLIC_URL) {
       return res.redirect("/?error=discord_config");
     }
     const redirectUri = PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback";
+    const isLink = state === "link";
+    const sessionToken = getCookie(req, "admin_session");
+    const session = sessionToken ? sessions.get(sessionToken) : null;
     try {
       const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
         method: "POST",
@@ -121,18 +167,41 @@ export function createApi(client) {
         headers: { Authorization: `Bearer ${tokenData.access_token}` },
       });
       if (!userRes.ok) return res.redirect("/?error=discord_user");
-      const user = await userRes.json();
-      const discordId = user.id;
-      const username = user.username || user.global_name || "User";
-      const sessionToken = randomBytes(24).toString("hex");
-      sessions.set(sessionToken, { discordId, username });
-      res.setHeader("Set-Cookie", [
-        "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800",
-      ].join("; "));
-      res.redirect("/");
+      const discordUser = await userRes.json();
+      const discordId = discordUser.id;
+      const username = discordUser.username || discordUser.global_name || "User";
+      if (isLink && session?.userId) {
+        setDiscord(session.userId, discordId, username);
+        sessions.set(sessionToken, { ...session, discordId, username });
+        return res.redirect("/?linked=1");
+      }
+      const appUser = getByDiscordId(discordId);
+      if (appUser) {
+        const sessionTokenNew = randomBytes(24).toString("hex");
+        sessions.set(sessionTokenNew, { userId: appUser.id, email: appUser.email, discordId: appUser.discordId, username: appUser.discordUsername });
+        res.setHeader("Set-Cookie", "admin_session=" + sessionTokenNew + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
+        return res.redirect("/");
+      }
+      return res.redirect("/?error=discord_not_linked");
     } catch (e) {
       console.error("Discord OAuth error:", e);
-      res.redirect("/?error=discord_failed");
+      return res.redirect("/?error=discord_failed");
+    }
+  });
+
+  app.post("/api/auth/unlink-discord", (req, res) => {
+    const user = getCurrentUser(req);
+    if (!user || !user.userId) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      unsetDiscord(user.userId);
+      const token = getCookie(req, "admin_session");
+      if (token && sessions.has(token)) {
+        const s = sessions.get(token);
+        sessions.set(token, { userId: s.userId, email: s.email });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
     }
   });
 
@@ -144,15 +213,19 @@ export function createApi(client) {
   });
 
   app.get("/api/auth/check", (req, res) => {
-    if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
-      if (!isAuthenticated(req)) return res.status(401).json({ ok: false });
-    }
-    res.json({ ok: true, isAdmin: isAdmin(req) });
+    if (!isAuthenticated(req)) return res.status(401).json({ ok: false });
+    const user = getCurrentUser(req);
+    res.json({
+      ok: true,
+      isAdmin: isAdmin(req),
+      user: user ? { email: user.email, discordId: user.discordId, username: user.username } : null,
+    });
   });
 
   app.get("/api/auth/config", (req, res) => {
     res.json({
       discordLogin: !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && PUBLIC_URL),
+      canRegister: true,
     });
   });
 
@@ -369,7 +442,7 @@ export function createApi(client) {
         savedMessageNames,
         scheduleType,
         options,
-        createdBy: user?.discordId || null,
+        createdBy: getOwnerId(user) || null,
       });
       res.json({ ok: true, id, label });
     } catch (e) {
@@ -383,7 +456,8 @@ export function createApi(client) {
       const user = getCurrentUser(req);
       const admin = isAdmin(req);
       if (!admin && user) {
-        list = list.filter((s) => s.createdBy === user.discordId);
+        const ownerId = getOwnerId(user);
+        list = list.filter((s) => s.createdBy === ownerId);
       } else if (!admin) {
         list = [];
       }
@@ -415,7 +489,7 @@ export function createApi(client) {
     if (!schedule) return res.status(404).json({ error: "Schedule not found" });
     const user = getCurrentUser(req);
     const admin = isAdmin(req);
-    if (!admin && user && schedule.createdBy !== user.discordId) {
+    if (!admin && user && schedule.createdBy !== getOwnerId(user)) {
       return res.status(403).json({ error: "You can only delete your own schedules" });
     }
     const removed = removeSchedule(id);
@@ -426,7 +500,7 @@ export function createApi(client) {
   function canEditSchedule(req, schedule) {
     if (isAdmin(req)) return true;
     const user = getCurrentUser(req);
-    return user && schedule.createdBy === user.discordId;
+    return user && schedule.createdBy === getOwnerId(user);
   }
 
   app.patch("/api/schedules/:id", (req, res) => {
