@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedulePaused, updateSchedule, getNextRun } from "./scheduler.js";
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
+import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -253,6 +254,43 @@ export function createApi(client) {
     try {
       const removed = removeSavedMessage(name);
       if (!removed) return res.status(404).json({ error: "Saved message not found" });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** List custom commands and prefix. */
+  app.get("/api/custom-commands", (req, res) => {
+    try {
+      const commands = listCustomCommands();
+      res.json({ prefix: getCustomCommandPrefix(), commands });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Create or update a custom command. */
+  app.post("/api/custom-commands", (req, res) => {
+    const { name, template } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ error: "name required" });
+    }
+    try {
+      const key = addCustomCommand(name.trim(), template);
+      res.json({ ok: true, name: key });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Delete a custom command by name. */
+  app.delete("/api/custom-commands/:name", (req, res) => {
+    const name = req.params.name;
+    if (!name) return res.status(400).json({ error: "name required" });
+    try {
+      const removed = removeCustomCommand(name);
+      if (!removed) return res.status(404).json({ error: "Custom command not found" });
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
