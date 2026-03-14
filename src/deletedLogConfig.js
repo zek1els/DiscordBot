@@ -7,18 +7,24 @@ function getConfigPath() {
 }
 
 /**
- * Load config: { guilds: { [guildId]: logChannelId } }
+ * Load config: { channels: [ { channelId, guildId } ] }
+ * Channels where /log-deletes here was run; logs are sent to these channels (per guild).
  */
 function load() {
   try {
     const path = getConfigPath();
     if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf8"));
+      const config = JSON.parse(readFileSync(path, "utf8"));
+      if (config.channels) return config;
+      if (config.guilds && typeof config.guilds === "object") {
+        const channels = Object.entries(config.guilds).map(([guildId, channelId]) => ({ channelId, guildId }));
+        return { channels };
+      }
     }
   } catch (e) {
     console.error("Failed to load deleted-log config:", e);
   }
-  return { guilds: {} };
+  return { channels: [] };
 }
 
 function save(config) {
@@ -32,34 +38,46 @@ function save(config) {
 }
 
 /**
- * Get the channel ID where the bot should post deletion logs for a guild.
+ * Get channel IDs where the bot should post deletion logs for a guild (channels that ran /log-deletes here in that guild).
  * @param {string} guildId
- * @returns {string|null}
+ * @returns {string[]}
  */
-export function getLogChannelForGuild(guildId) {
+export function getLogChannelIdsForGuild(guildId) {
   const config = load();
-  return config.guilds?.[guildId] ?? null;
+  const list = config.channels || [];
+  return list.filter((c) => c.guildId === guildId).map((c) => c.channelId);
 }
 
 /**
- * Set the log channel for a guild. Pass null to disable logging for that guild.
- * @param {string} guildId
- * @param {string|null} channelId
+ * Register a channel to receive deleted message logs (run /log-deletes here in that channel).
  */
-export function setLogChannel(guildId, channelId) {
+export function addLogChannel(channelId, guildId) {
   const config = load();
-  if (!config.guilds) config.guilds = {};
-  if (channelId) {
-    config.guilds[guildId] = channelId;
-  } else {
-    delete config.guilds[guildId];
-  }
+  if (!config.channels) config.channels = [];
+  const id = String(channelId);
+  if (config.channels.some((c) => c.channelId === id && c.guildId === String(guildId))) return;
+  config.channels.push({ channelId: id, guildId: String(guildId) });
   save(config);
 }
 
 /**
- * Get full config for API: { guilds: { [guildId]: channelId } }
+ * Unregister a channel from receiving logs.
  */
-export function getConfig() {
-  return load();
+export function removeLogChannel(channelId) {
+  const config = load();
+  if (!config.channels) return false;
+  const id = String(channelId);
+  const before = config.channels.length;
+  config.channels = config.channels.filter((c) => c.channelId !== id);
+  if (config.channels.length === before) return false;
+  save(config);
+  return true;
+}
+
+/**
+ * Get all registered channels for the panel. [{ channelId, guildId }]
+ */
+export function getAllLogChannels() {
+  const config = load();
+  return Array.isArray(config.channels) ? [...config.channels] : [];
 }

@@ -3,7 +3,8 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
 import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedulePaused, updateSchedule, getNextRun } from "./scheduler.js";
-import { getConfig as getDeletedLogConfig, setLogChannel as setDeletedLogChannel } from "./deletedLogConfig.js";
+import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
+import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -183,24 +184,76 @@ export function createApi(client) {
     }
   });
 
-  /** Get deleted-message log config: which guilds are monitored and where logs are sent */
-  app.get("/api/deleted-log-config", (req, res) => {
+  /** Get channels where deleted-message logs are sent (run /log-deletes here in Discord to add). Enriched with guild/channel names. */
+  app.get("/api/deleted-log-config", async (req, res) => {
     try {
-      const config = getDeletedLogConfig();
-      res.json(config.guilds ? { guilds: config.guilds } : { guilds: {} });
+      const channels = getAllLogChannels();
+      const enriched = await Promise.all(
+        channels.map(async (c) => {
+          let guildName = "";
+          let channelName = "";
+          try {
+            const ch = await client.channels.fetch(c.channelId).catch(() => null);
+            if (ch) {
+              channelName = ch.name || "";
+              guildName = ch.guild?.name || "";
+            }
+          } catch (_) {}
+          return { channelId: c.channelId, guildId: c.guildId, guildName, channelName };
+        })
+      );
+      res.json({ channels: enriched });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  /** Set or clear the log channel for a server (admin only). Body: { guildId, channelId }. Pass channelId null to disable. */
-  app.put("/api/deleted-log-config", (req, res) => {
+  /** Remove a channel from receiving deleted logs (admin only). Use /log-deletes off in Discord to disable from there. */
+  app.delete("/api/deleted-log-config/channel/:channelId", (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
-    const { guildId, channelId } = req.body || {};
-    if (!guildId) return res.status(400).json({ error: "guildId required" });
+    const { channelId } = req.params;
+    if (!channelId) return res.status(400).json({ error: "channelId required" });
     try {
-      setDeletedLogChannel(String(guildId), channelId ? String(channelId) : null);
-      res.json({ ok: true, guildId: String(guildId), channelId: channelId ? String(channelId) : null });
+      const removed = removeDeletedLogChannel(channelId);
+      res.json({ ok: true, removed });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** List saved message templates (for schedules and send). */
+  app.get("/api/saved-messages", (req, res) => {
+    try {
+      const list = listSavedMessages();
+      res.json({ messages: list });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Create or overwrite a saved message (plain text from panel). */
+  app.post("/api/saved-messages", (req, res) => {
+    const { name, content } = req.body || {};
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return res.status(400).json({ error: "name required" });
+    }
+    try {
+      const payload = { content: String(content ?? "").trim() || " " };
+      saveSavedMessage(name.trim(), payload);
+      res.json({ ok: true, name: name.trim().toLowerCase() });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Delete a saved message by name. */
+  app.delete("/api/saved-messages/:name", (req, res) => {
+    const name = req.params.name;
+    if (!name) return res.status(400).json({ error: "name required" });
+    try {
+      const removed = removeSavedMessage(name);
+      if (!removed) return res.status(404).json({ error: "Saved message not found" });
+      res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -244,18 +297,20 @@ export function createApi(client) {
 
   app.post("/api/schedule", async (req, res) => {
     const body = req.body || {};
-    const { channelId, content, messages: messagesBody, scheduleType } = body;
+    const { channelId, content, messages: messagesBody, savedMessageNames: savedNamesBody, scheduleType } = body;
     const hasContent = content != null && String(content).trim() !== "";
     const messagesArray = Array.isArray(messagesBody) ? messagesBody.filter((m) => m != null && String(m).trim() !== "") : [];
     const hasMessages = messagesArray.length > 0;
+    const savedNames = Array.isArray(savedNamesBody) ? savedNamesBody.map((n) => String(n).trim()).filter(Boolean) : [];
+    const hasSaved = savedNames.length > 0;
     if (!channelId || !scheduleType) {
       return res.status(400).json({
         error: "channelId and scheduleType required (scheduleType: interval_minutes | daily | weekly)",
       });
     }
-    if (!hasContent && !hasMessages) {
+    if (!hasContent && !hasMessages && !hasSaved) {
       return res.status(400).json({
-        error: "Provide at least one message: content (string) or messages (array of strings). For random pick, send multiple in messages.",
+        error: "Provide messages (plain text), savedMessageNames (saved template names), or content.",
       });
     }
     const user = getCurrentUser(req);
@@ -266,12 +321,14 @@ export function createApi(client) {
       day_of_week: body.day_of_week ?? 0,
     };
     try {
-      const payload = hasMessages ? undefined : { content: String(content).trim() || " " };
+      const payload = hasMessages ? undefined : hasSaved ? undefined : { content: String(content).trim() || " " };
       const messages = hasMessages ? messagesArray.map((m) => String(m).trim() || " ") : undefined;
+      const savedMessageNames = hasSaved ? savedNames : undefined;
       const { id, label } = addSchedule({
         channelId: String(channelId),
         payload,
         messages,
+        savedMessageNames,
         scheduleType,
         options,
         createdBy: user?.discordId || null,
@@ -350,6 +407,7 @@ export function createApi(client) {
     const updates = {};
     if (body.content != null) updates.content = body.content;
     if (body.messages != null) updates.messages = Array.isArray(body.messages) ? body.messages : [body.content];
+    if (body.savedMessageNames != null) updates.savedMessageNames = Array.isArray(body.savedMessageNames) ? body.savedMessageNames : [];
     if (body.scheduleType != null) updates.scheduleType = body.scheduleType;
     if (body.timezone != null) updates.timezone = body.timezone;
     if (body.minutes != null) updates.minutes = body.minutes;
@@ -377,6 +435,7 @@ export function createApi(client) {
       channelId: schedule.channelId,
       content: messages[0] ?? "",
       messages,
+      savedMessageNames: schedule.savedMessageNames || [],
       scheduleType: schedule.scheduleType,
       timezone: schedule.options?.timezone || "UTC",
       minutes: schedule.options?.minutes ?? 5,
