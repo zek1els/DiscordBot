@@ -185,6 +185,7 @@
     <div class="section">
       <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Custom commands</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Users type <strong id="customCommandPrefix">!</strong><strong>command</strong> in chat (e.g. <code>!hug @max</code>). The bot replies with your template. Use placeholders: <code>{author}</code> (who ran it), <code>{target}</code> (first @mention), <code>{author_username}</code>, <code>{target_username}</code>, <code>{args}</code> (rest of message).</p>
+      <p style="font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.5rem; background: var(--card-bg); border-radius: 4px; border-left: 3px solid #5865f2;"><strong>If nothing happens when you type !command:</strong> In the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> open your app → <strong>Bot</strong> → under <strong>Privileged Gateway Intents</strong> turn on <strong>MESSAGE CONTENT INTENT</strong>, then save. Restart the bot if it was already running.</p>
       <label for="customCommandName">Command name</label>
       <input type="text" id="customCommandName" placeholder="e.g. hug">
       <label for="customCommandTemplate">Response template</label>

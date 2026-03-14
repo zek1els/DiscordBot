@@ -13,7 +13,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // Required for deleted-message logging (content in cache)
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent, // Required for !custom commands and deleted-message logging
   ],
 });
 
@@ -165,6 +166,8 @@ client.once("clientReady", async () => {
   } catch (e) {
     console.error("Failed to register slash commands:", e);
   }
+  const customCount = listCustomCommands().length;
+  console.log(`Custom commands: prefix "${getCustomCommandPrefix()}", ${customCount} command(s). If !commands don't respond, enable "Message Content Intent" in Discord Developer Portal → Bot → Privileged Gateway Intents.`);
   initScheduler(client);
 
   const port = Number(process.env.PORT) || 3000;
@@ -187,15 +190,22 @@ client.on("guildCreate", async (guild) => {
 client.on("messageCreate", async (message) => {
   if (message.author?.bot) return;
   const content = message.content?.trim();
-  if (!content) return;
   const prefix = getCustomCommandPrefix();
+  if (!content) {
+    // Message content can be empty if Message Content Intent is disabled in Discord Developer Portal
+    return;
+  }
   if (!content.startsWith(prefix)) return;
   const afterPrefix = content.slice(prefix.length).trim();
+  if (!afterPrefix) return; // e.g. user typed "!" with nothing after
   const firstSpace = afterPrefix.indexOf(" ");
-  const commandName = firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace);
+  const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase();
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
   const cmd = getCustomCommand(commandName);
-  if (!cmd) return;
+  if (!cmd) {
+    console.log(`Custom command not found: "${commandName}". Add it in the web app (Custom commands).`);
+    return;
+  }
   const author = message.author;
   const mentionedUsers = message.mentions?.users ? Array.from(message.mentions.users.values()) : [];
   const target = mentionedUsers[0] ?? null;
@@ -214,7 +224,7 @@ client.on("messageCreate", async (message) => {
   try {
     await message.channel.send({ content: text.trim() });
   } catch (e) {
-    console.error("Custom command reply failed:", e);
+    console.error("Custom command reply failed (check bot has 'Send Messages' in this channel):", e.message || e);
   }
 });
 
