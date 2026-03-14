@@ -42,14 +42,18 @@ In your Railway project: **Your Service** → **Variables** → **Add Variable**
 
 ## 5. (Optional) Persistent data
 
-By default, Railway’s disk is **ephemeral**: schedules and saved messages in `data/` can be lost on redeploy or when the service restarts. To keep them:
+By default, Railway’s disk is **ephemeral**: schedules and saved messages can be lost on redeploy. To keep them across deploys:
 
-1. In Railway: **Your Service** → **Volumes** → **Add Volume**.
-2. Mount it at a path, e.g. `/data`.
-3. We’d need to change the app to read/write `data/` from that path (e.g. via an env var `DATA_DIR=/data`). If you want this, say so and we can add it.
+1. In Railway: open your **service** → **Volumes** tab → **Add Volume**.
+2. Set the **mount path** to `/data` (or another path you prefer).
+3. In **Variables**, add:
+   - **`DATA_DIR`** = `/data`  
+   (use the same path you chose in step 2.)
+4. Redeploy if needed. The app will store `schedules.json` and `saved-messages.json` on the volume, so they persist across restarts and new deploys.
 
 ## Summary
 
 - **Bot:** Runs 24/7 on Railway; uses `DISCORD_TOKEN` to connect to Discord.
-- **Web app:** Served at your Railway URL; protect it with `API_KEY` and enter that key in the page.
+- **Web app:** Served at your Railway URL; log in with `ADMIN_PASSWORD` to use the scheduler and see all scheduled messages.
+- **Persistent data:** Set `DATA_DIR` and add a Volume at that path so schedules and saved messages survive deploys.
 - **Slash commands:** If you set `GUILD_ID`, they appear in your server quickly; otherwise they can take up to an hour to show everywhere.

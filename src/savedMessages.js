@@ -1,14 +1,16 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { join } from "path";
+import { getDataDir } from "./dataDir.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const STORE_PATH = join(__dirname, "..", "data", "saved-messages.json");
+function getStorePath() {
+  return join(getDataDir(), "saved-messages.json");
+}
 
 function loadAll() {
   try {
-    if (existsSync(STORE_PATH)) {
-      return JSON.parse(readFileSync(STORE_PATH, "utf8"));
+    const path = getStorePath();
+    if (existsSync(path)) {
+      return JSON.parse(readFileSync(path, "utf8"));
     }
   } catch (e) {
     console.error("Failed to load saved messages:", e);
@@ -18,9 +20,9 @@ function loadAll() {
 
 function saveAll(data) {
   try {
-    const dir = join(__dirname, "..", "data");
+    const dir = getDataDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), "utf8");
+    writeFileSync(getStorePath(), JSON.stringify(data, null, 2), "utf8");
   } catch (e) {
     console.error("Failed to save messages:", e);
   }
