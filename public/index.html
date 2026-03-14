@@ -32,17 +32,12 @@
 </head>
 <body>
   <div id="loginPanel" style="display: none;">
-    <h1>Admin login</h1>
-    <p>Log in to manage scheduled messages.</p>
-    <div id="discordLoginWrap" class="section" style="display: none;">
+    <h1>Log in</h1>
+    <p>Connect your Discord account to manage your scheduled messages.</p>
+    <div id="discordLoginWrap" class="section">
       <a href="/api/auth/discord" id="discordLoginBtn" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #5865f2; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 500;">Login with Discord</a>
     </div>
-    <div id="passwordLoginWrap" class="section">
-      <label for="adminPassword">Or use password</label>
-      <input type="password" id="adminPassword" placeholder="Admin password" style="max-width: 240px;">
-      <button type="button" id="loginBtn" style="margin-top: 0.5rem;">Log in</button>
-      <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
-    </div>
+    <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
   </div>
 
   <div id="appPanel" style="display: none;">
@@ -126,8 +121,6 @@
 
     const loginPanel = document.getElementById("loginPanel");
     const appPanel = document.getElementById("appPanel");
-    const adminPasswordEl = document.getElementById("adminPassword");
-    const loginBtn = document.getElementById("loginBtn");
     const loginStatus = document.getElementById("loginStatus");
     const logoutLink = document.getElementById("logoutLink");
 
@@ -152,17 +145,6 @@
       appPanel.style.display = "none";
       loginPanel.style.display = "block";
     }
-
-    loginBtn.addEventListener("click", async () => {
-      const password = adminPasswordEl.value.trim();
-      if (!password) { loginStatus.textContent = "Enter password"; loginStatus.style.color = "#ed4245"; return; }
-      loginBtn.disabled = true;
-      loginStatus.textContent = "";
-      const r = await fetch("/api/login", fetchOpts({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) }));
-      const data = await r.json().catch(() => ({}));
-      loginBtn.disabled = false;
-      if (r.ok) { showApp(); fillTimeScrollers(); loadSchedules(); } else { loginStatus.textContent = data.error || "Wrong password"; loginStatus.style.color = "#ed4245"; }
-    });
 
     logoutLink.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -323,11 +305,11 @@
       const configRes = await fetch("/api/auth/config");
       const config = await configRes.json().catch(() => ({}));
       document.getElementById("discordLoginWrap").style.display = config.discordLogin ? "block" : "none";
-      document.getElementById("passwordLoginWrap").style.display = config.passwordLogin ? "block" : "none";
+      if (!config.discordLogin && loginStatus) loginStatus.textContent = "Discord login is not configured. Set DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, and PUBLIC_URL.";
       const params = new URLSearchParams(location.search);
       const err = params.get("error");
       if (err && loginStatus) {
-        const msg = { discord_config: "Discord login not configured", not_allowed: "Your Discord account is not allowed to log in", discord_token: "Discord auth failed", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
+        const msg = { discord_config: "Discord login not configured", discord_token: "Discord auth failed", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
         loginStatus.textContent = msg;
         loginStatus.style.color = "#ed4245";
       }

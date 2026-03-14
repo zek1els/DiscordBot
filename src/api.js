@@ -2,20 +2,20 @@ import express from "express";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
-import { addSchedule, listSchedules, removeSchedule } from "./scheduler.js";
+import { addSchedule, listSchedules, removeSchedule, getScheduleById } from "./scheduler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const apiKey = process.env.API_KEY;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim();
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim();
 const PUBLIC_URL = process.env.PUBLIC_URL?.trim() || "";
-const ALLOWED_DISCORD_IDS = (process.env.ALLOWED_DISCORD_IDS || "")
+const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const sessions = new Set();
+/** @type {Map<string, { discordId: string, username: string }>} */
+const sessions = new Map();
 
 function getCookie(req, name) {
   const c = req.headers.cookie;
@@ -24,12 +24,27 @@ function getCookie(req, name) {
   return m ? decodeURIComponent(m[1].trim()) : null;
 }
 
-function isAdmin(req) {
+/** Returns current user for session, or null for API key (API key = full admin). */
+function getCurrentUser(req) {
+  const sessionToken = getCookie(req, "admin_session");
+  if (sessionToken) return sessions.get(sessionToken) || null;
+  return null;
+}
+
+function isAuthenticated(req) {
   const sessionToken = getCookie(req, "admin_session");
   if (sessionToken && sessions.has(sessionToken)) return true;
   const key = req.headers["x-api-key"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (apiKey && key === apiKey) return true;
   return false;
+}
+
+function isAdmin(req) {
+  const key = req.headers["x-api-key"] || (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (apiKey && key === apiKey) return true;
+  const user = getCurrentUser(req);
+  if (!user) return false;
+  return ADMIN_DISCORD_IDS.length === 0 || ADMIN_DISCORD_IDS.includes(user.discordId);
 }
 
 /**
@@ -42,13 +57,13 @@ export function createApi(client) {
   app.use(express.json());
 
   function auth(req, res, next) {
-    if (ADMIN_PASSWORD || apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
-      if (!isAdmin(req)) return res.status(401).json({ error: "Unauthorized" });
+    if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
+      if (!isAuthenticated(req)) return res.status(401).json({ error: "Unauthorized" });
       return next();
     }
     const ip = req.ip || req.socket.remoteAddress || "";
     if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
-      return res.status(403).json({ error: "API only allowed from localhost when no auth is configured" });
+      return res.status(403).json({ error: "API only allowed from localhost when Discord login is not configured" });
     }
     next();
   }
@@ -100,11 +115,9 @@ export function createApi(client) {
       if (!userRes.ok) return res.redirect("/?error=discord_user");
       const user = await userRes.json();
       const discordId = user.id;
-      if (ALLOWED_DISCORD_IDS.length > 0 && !ALLOWED_DISCORD_IDS.includes(discordId)) {
-        return res.redirect("/?error=not_allowed");
-      }
+      const username = user.username || user.global_name || "User";
       const sessionToken = randomBytes(24).toString("hex");
-      sessions.add(sessionToken);
+      sessions.set(sessionToken, { discordId, username });
       res.setHeader("Set-Cookie", [
         "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800",
       ].join("; "));
@@ -115,18 +128,6 @@ export function createApi(client) {
     }
   });
 
-  app.post("/api/login", (req, res) => {
-    const password = req.body?.password;
-    if (!ADMIN_PASSWORD) return res.status(503).json({ error: "Login not configured (set ADMIN_PASSWORD)" });
-    if (password !== ADMIN_PASSWORD) return res.status(401).json({ error: "Wrong password" });
-    const token = randomBytes(24).toString("hex");
-    sessions.add(token);
-    res.setHeader("Set-Cookie", [
-      "admin_session=" + token + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800",
-    ].join("; "));
-    res.json({ ok: true });
-  });
-
   app.post("/api/logout", (req, res) => {
     const token = getCookie(req, "admin_session");
     if (token) sessions.delete(token);
@@ -135,19 +136,15 @@ export function createApi(client) {
   });
 
   app.get("/api/auth/check", (req, res) => {
-    if (ADMIN_PASSWORD || apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
-      if (!isAdmin(req)) return res.status(401).json({ ok: false });
+    if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
+      if (!isAuthenticated(req)) return res.status(401).json({ ok: false });
     }
-    res.json({
-      ok: true,
-      discordLogin: !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && PUBLIC_URL),
-    });
+    res.json({ ok: true });
   });
 
   app.get("/api/auth/config", (req, res) => {
     res.json({
       discordLogin: !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && PUBLIC_URL),
-      passwordLogin: !!ADMIN_PASSWORD,
     });
   });
 
@@ -198,6 +195,7 @@ export function createApi(client) {
         error: "channelId, content, and scheduleType required (scheduleType: interval_minutes | daily | weekly)",
       });
     }
+    const user = getCurrentUser(req);
     const payload = { content: String(content).trim() || " " };
     const options = {
       timezone: body.timezone || "UTC",
@@ -211,6 +209,7 @@ export function createApi(client) {
         payload,
         scheduleType,
         options,
+        createdBy: user?.discordId || null,
       });
       res.json({ ok: true, id, label });
     } catch (e) {
@@ -220,7 +219,14 @@ export function createApi(client) {
 
   app.get("/api/schedules", async (req, res) => {
     try {
-      const list = listSchedules();
+      let list = listSchedules();
+      const user = getCurrentUser(req);
+      const admin = isAdmin(req);
+      if (!admin && user) {
+        list = list.filter((s) => s.createdBy === user.discordId);
+      } else if (!admin) {
+        list = [];
+      }
       const enriched = await Promise.all(
         list.map(async (s) => {
           let serverName = "";
@@ -243,6 +249,13 @@ export function createApi(client) {
 
   app.delete("/api/schedules/:id", (req, res) => {
     const id = req.params.id;
+    const schedule = getScheduleById(id);
+    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
+    const user = getCurrentUser(req);
+    const admin = isAdmin(req);
+    if (!admin && user && schedule.createdBy !== user.discordId) {
+      return res.status(403).json({ error: "You can only delete your own schedules" });
+    }
     const removed = removeSchedule(id);
     if (!removed) return res.status(404).json({ error: "Schedule not found" });
     res.json({ ok: true });

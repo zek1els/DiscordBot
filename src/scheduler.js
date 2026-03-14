@@ -111,10 +111,10 @@ function stopJob(id) {
 
 /**
  * Add a new schedule.
- * @param {{ channelId: string, payload: object, scheduleType: string, options: object }} params
+ * @param {{ channelId: string, payload: object, scheduleType: string, options: object, createdBy?: string }} params
  * @returns {{ id: string, label: string }}
  */
-export function addSchedule({ channelId, payload, scheduleType, options = {} }) {
+export function addSchedule({ channelId, payload, scheduleType, options = {}, createdBy = null }) {
   const { cron: cronExpr, label } = buildCron(scheduleType, options);
   const id = generateId();
   const timezone = options.timezone || "UTC";
@@ -127,12 +127,21 @@ export function addSchedule({ channelId, payload, scheduleType, options = {} }) 
     label,
     scheduleType,
     options,
+    createdBy: createdBy || null,
   };
   const schedules = loadSchedules();
   schedules.push(schedule);
   saveSchedules(schedules);
   startJob(schedule);
   return { id, label };
+}
+
+/**
+ * Get a single schedule by id (raw object with createdBy).
+ */
+export function getScheduleById(id) {
+  const schedules = loadSchedules();
+  return schedules.find((s) => s.id === id) || null;
 }
 
 /**
@@ -150,8 +159,8 @@ export function removeSchedule(id) {
 }
 
 /**
- * List all schedules.
- * @returns {Array<{ id: string, channelId: string, label: string, preview: string }>}
+ * List all schedules (includes createdBy for filtering).
+ * @returns {Array<{ id: string, channelId: string, label: string, preview: string, createdBy: string|null }>}
  */
 export function listSchedules() {
   return loadSchedules().map((s) => ({
@@ -159,5 +168,6 @@ export function listSchedules() {
     channelId: s.channelId,
     label: s.label,
     preview: (s.payload.content || (s.payload.embeds?.[0]?.title || s.payload.embeds?.[0]?.description) || "").slice(0, 50),
+    createdBy: s.createdBy ?? null,
   }));
 }

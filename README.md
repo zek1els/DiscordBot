@@ -24,7 +24,9 @@ When the bot is running, a **local web app** is available so you can send and sc
 
 From the web UI you can: pick server & channel, type a message, **Send now**, or **Create schedule**. Time and timezone use dropdowns (e.g. Europe/Athens). You can list and delete scheduled messages.
 
-**Deploy on Railway (free):** See **[RAILWAY.md](RAILWAY.md)** for step-by-step instructions.
+**Deploy on Railway (free):** See **[RAILWAY.md](RAILWAY.md)** for step-by-step instructions. The panel uses **Login with Discord** only. Set **ADMIN_DISCORD_IDS** (your Discord user ID) so you see all scheduled messages; others see only the ones they created.
+
+**Where to find Client ID and Secret:** [Discord Developer Portal](https://discord.com/developers/applications) → your app. **Client ID** = **Application ID** on the app’s front page. **Client Secret** = **OAuth2** (left sidebar) → **Client Secret** (click **Reset** to reveal). In **OAuth2 → Redirects**, add `https://YOUR_PUBLIC_URL/api/auth/discord/callback`.
 
 ## Setup
 
