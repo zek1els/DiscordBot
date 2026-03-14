@@ -144,23 +144,25 @@ const messageCommand = {
   ],
 };
 
+const slashCommands = [sendCommand, scheduleCommand, messageCommand, logDeletesCommand];
+
 client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  const guildId =
-    process.env.GUILD_ID || client.guilds.cache.first()?.id;
-  if (!guildId) {
-    console.warn("No GUILD_ID and no guilds in cache. Registering global commands (may take up to 1 hour).");
-  }
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   try {
-    const route = guildId
-      ? Routes.applicationGuildCommands(client.user.id, guildId)
-      : Routes.applicationCommands(client.user.id);
-    await rest.put(route, { body: [sendCommand, scheduleCommand, messageCommand, logDeletesCommand] });
-    console.log("Slash command registered.");
+    const guilds = client.guilds.cache;
+    if (guilds.size > 0) {
+      for (const [guildId] of guilds) {
+        await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: slashCommands });
+      }
+      console.log(`Slash commands registered in ${guilds.size} guild(s) (including /log-deletes).`);
+    } else {
+      await rest.put(Routes.applicationCommands(client.user.id), { body: slashCommands });
+      console.warn("No guilds in cache. Registered global commands (may take up to 1 hour to appear).");
+    }
   } catch (e) {
-    console.error("Failed to register command:", e);
+    console.error("Failed to register slash commands:", e);
   }
   initScheduler(client);
 
@@ -169,6 +171,16 @@ client.once("clientReady", async () => {
   api.listen(port, "0.0.0.0", () => {
     console.log(`Web app: http://localhost:${port}`);
   });
+});
+
+client.on("guildCreate", async (guild) => {
+  try {
+    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(Routes.applicationGuildCommands(client.user.id, guild.id), { body: slashCommands });
+    console.log(`Slash commands registered in new guild: ${guild.name} (${guild.id}).`);
+  } catch (e) {
+    console.error("Failed to register slash commands for new guild:", e);
+  }
 });
 
 client.on("messageDelete", async (message) => {
