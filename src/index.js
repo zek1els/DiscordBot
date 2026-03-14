@@ -203,19 +203,21 @@ client.on("guildCreate", async (guild) => {
   }
 });
 
+// Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
+const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
+
 client.on("messageCreate", async (message) => {
   if (message.author?.bot) return;
-  const content = message.content?.trim();
-  const prefix = getCustomCommandPrefix();
-  if (!content) {
-    // Message content can be empty if Message Content Intent is disabled in Discord Developer Portal
-    return;
-  }
-  if (!content.startsWith(prefix)) return;
-  const afterPrefix = content.slice(prefix.length).trim();
-  if (!afterPrefix) return; // e.g. user typed "!" with nothing after
+  const raw = message.content;
+  if (raw == null || typeof raw !== "string") return;
+  const content = raw.trim();
+  if (!content) return;
+  const firstChar = content.charAt(0);
+  if (!CUSTOM_CMD_PREFIXES.includes(firstChar)) return;
+  const afterPrefix = content.slice(1).trim();
+  if (!afterPrefix) return;
   const firstSpace = afterPrefix.indexOf(" ");
-  const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase();
+  const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase().replace(/\s/g, "");
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
   const cmd = getCustomCommand(commandName);
   if (!cmd) return;

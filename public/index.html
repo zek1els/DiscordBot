@@ -262,6 +262,7 @@
       <button type="button" id="customCommandSaveBtn">Save</button>
       <p id="customCommandStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
       <h3 style="font-size: 0.95rem; margin-top: 1rem;">Commands</h3>
+      <p id="customCommandsDebug" class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;"></p>
       <ul id="customCommandsList"></ul>
     </div>
   </div>
@@ -738,12 +739,18 @@
     async function loadCustomCommandsPage() {
       const listEl = document.getElementById("customCommandsList");
       const prefixEl = document.getElementById("customCommandPrefix");
+      const debugEl = document.getElementById("customCommandsDebug");
       if (!listEl) return;
       const r = await fetch("/api/custom-commands", fetchOpts({ headers: headers() }));
-      if (!r.ok) { listEl.innerHTML = "<li class=\"muted\">Could not load</li>"; return; }
+      if (!r.ok) { listEl.innerHTML = "<li class=\"muted\">Could not load</li>"; if (debugEl) debugEl.textContent = ""; return; }
       const data = await r.json().catch(() => ({}));
       const { prefix = "!", commands = [] } = data;
       if (prefixEl) prefixEl.textContent = prefix;
+      const debugRes = await fetch("/api/custom-commands/debug", fetchOpts({ headers: headers() }));
+      if (debugEl && debugRes.ok) {
+        const debugData = await debugRes.json().catch(() => ({}));
+        debugEl.textContent = debugData.commandsCount + " command(s) loaded from " + (debugData.dataPath || "—");
+      } else if (debugEl) debugEl.textContent = "";
       if (commands.length === 0) {
         listEl.innerHTML = "<li class=\"muted\">No custom commands. Add one above.</li>";
         return;

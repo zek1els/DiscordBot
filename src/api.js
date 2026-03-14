@@ -7,6 +7,7 @@ import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 import { create as createUser, validate as validateUser, getById, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser } from "./users.js";
+import { getDataDir } from "./dataDir.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -338,6 +339,17 @@ export function createApi(client) {
     try {
       const commands = listCustomCommands();
       res.json({ prefix: getCustomCommandPrefix(), commands });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Debug: path and count so panel can show "X commands loaded from /data" and troubleshoot. */
+  app.get("/api/custom-commands/debug", (req, res) => {
+    try {
+      const commands = listCustomCommands();
+      const dataPath = join(getDataDir(), "custom-commands.json");
+      res.json({ prefix: getCustomCommandPrefix(), commandsCount: commands.length, dataPath });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
