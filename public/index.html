@@ -24,6 +24,7 @@
     ul { list-style: none; padding: 0; margin: 0; }
     li { padding: 0.5rem; background: #f5f5f5; border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
     .schedule-preview { font-size: 0.875rem; color: #666; }
+    .schedule-where { display: block; font-size: 0.8rem; color: #5865f2; margin-top: 0.15rem; }
     #apiKeyWrap { margin-bottom: 1rem; }
     #apiKeyWrap input { max-width: 280px; }
     .muted { color: #666; font-size: 0.875rem; }
@@ -293,12 +294,19 @@
       if (!r.ok) { scheduleList.innerHTML = "<li>Could not load schedules</li>"; return; }
       const { schedules } = await r.json();
       if (schedules.length === 0) { scheduleList.innerHTML = "<li>No scheduled messages</li>"; return; }
-      scheduleList.innerHTML = schedules.map(s => `
+      scheduleList.innerHTML = schedules.map(s => {
+        const where = [s.serverName, s.channelName ? "#" + s.channelName : ""].filter(Boolean).join(" › ") || "Unknown channel";
+        return `
         <li>
-          <span><strong>${escapeHtml(s.label)}</strong> <span class="schedule-preview">${escapeHtml(s.preview || "")}</span></span>
+          <span>
+            <strong>${escapeHtml(s.label)}</strong>
+            <span class="schedule-where">${escapeHtml(where)}</span>
+            <span class="schedule-preview">${escapeHtml(s.preview || "")}</span>
+          </span>
           <button class="danger" data-id="${escapeHtml(s.id)}">Delete</button>
         </li>
-      `).join("");
+      `;
+      }).join("");
       scheduleList.querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", async () => {
           const id = btn.dataset.id;

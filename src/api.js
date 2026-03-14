@@ -142,10 +142,24 @@ export function createApi(client) {
     }
   });
 
-  app.get("/api/schedules", (req, res) => {
+  app.get("/api/schedules", async (req, res) => {
     try {
       const list = listSchedules();
-      res.json({ schedules: list });
+      const enriched = await Promise.all(
+        list.map(async (s) => {
+          let serverName = "";
+          let channelName = "";
+          try {
+            const ch = await client.channels.fetch(s.channelId);
+            if (ch) {
+              channelName = ch.name || "";
+              serverName = ch.guild?.name || "";
+            }
+          } catch (_) {}
+          return { ...s, serverName, channelName };
+        })
+      );
+      res.json({ schedules: enriched });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
