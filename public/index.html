@@ -84,12 +84,55 @@
     .page.active { display: block; }
     .message-row { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem; }
     .message-row textarea { flex: 1; min-height: 60px; }
+    /* Landing */
+    .landing-wrap { min-height: 100vh; display: flex; flex-direction: column; }
+    .landing-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 2rem; }
+    .landing-logo { font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; }
+    .landing-auth { display: flex; gap: 0.5rem; align-items: center; }
+    .landing-auth a { padding: 0.4rem 0.9rem; border-radius: 8px; font-size: 0.9rem; font-weight: 500; text-decoration: none; transition: background 0.2s, color 0.2s; }
+    .landing-auth .btn-outline { color: var(--text); border: 1px solid var(--border); background: transparent; }
+    .landing-auth .btn-outline:hover { background: var(--card-bg); }
+    .landing-auth .btn-primary { background: var(--btn-primary); color: #fff; border: none; }
+    .landing-auth .btn-primary:hover { background: var(--btn-primary-hover); }
+    .landing-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 2rem 0; text-align: center; }
+    .landing-hero h1 { font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 0.75rem; line-height: 1.2; font-weight: 700; }
+    .landing-hero p { font-size: 1.1rem; color: var(--text-muted); max-width: 420px; margin: 0 auto 1.5rem; line-height: 1.5; }
+    .landing-cta { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 600; background: var(--btn-primary); color: #fff; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; margin: 0 auto; transition: background 0.2s, transform 0.1s; }
+    .landing-cta:hover { background: var(--btn-primary-hover); transform: translateY(-1px); }
+    .landing-features { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin-top: 2.5rem; }
+    .landing-features span { padding: 0.4rem 0.9rem; background: var(--card-bg); color: var(--text-muted); border-radius: 999px; font-size: 0.85rem; }
+    .landing-blob { width: 120px; height: 120px; margin: 0 auto 1.5rem; border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; background: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%); opacity: 0.85; animation: blob 8s ease-in-out infinite; }
+    [data-theme="dark"] .landing-blob { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); opacity: 0.7; }
+    @keyframes blob { 0%, 100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; transform: rotate(0deg); } 50% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; transform: rotate(180deg); } }
+    input[type="email"], input[type="password"] { width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
   </style>
 </head>
 <body>
+  <div id="landingPanel" class="landing-wrap">
+    <header class="landing-header">
+      <a href="#" id="landingLogo" class="landing-logo">✨ Discord Scheduler</a>
+      <div class="landing-auth">
+        <a href="#" id="landingLoginBtn" class="btn-outline">Log in</a>
+        <a href="#" id="landingRegisterBtn" class="btn-primary">Register</a>
+      </div>
+    </header>
+    <main class="landing-hero">
+      <div class="landing-blob" aria-hidden="true"></div>
+      <h1>Schedule messages with a smile</h1>
+      <p>Send messages to your Discord server on a schedule. Recurring posts, reminders, or random fun—all from one cozy place.</p>
+      <a href="#" id="landingGetStartedBtn" class="landing-cta">Get started</a>
+      <div class="landing-features">
+        <span>📅 Recurring schedules</span>
+        <span>💾 Saved templates</span>
+        <span>🔗 Link Discord later</span>
+      </div>
+    </main>
+  </div>
+
   <div id="loginPanel" style="display: none;">
-    <h1>Discord Scheduler</h1>
-    <p class="muted" style="margin-bottom: 1rem;">Create an account or log in. You can link Discord after logging in.</p>
+    <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLandingLink" class="muted" style="font-size: 0.875rem; text-decoration: none;">← Back to home</a></p>
+    <h1 style="margin-top: 0;">Log in or create an account</h1>
+    <p class="muted" style="margin-bottom: 1rem;">You can link Discord after logging in.</p>
     <div class="section" style="margin-bottom: 1rem;">
       <h2 style="font-size: 1rem;">Create account</h2>
       <label for="registerEmail">Email</label>
@@ -308,6 +351,7 @@
       "Asia/Tokyo", "Asia/Shanghai", "Asia/Kolkata", "Australia/Sydney"
     ];
 
+    const landingPanel = document.getElementById("landingPanel");
     const loginPanel = document.getElementById("loginPanel");
     const appPanel = document.getElementById("appPanel");
     const loginStatus = document.getElementById("loginStatus");
@@ -367,8 +411,21 @@
       if (servers.length === 0) { listEl.innerHTML = "<li class=\"muted\">Bot is not in any servers</li>"; return; }
       listEl.innerHTML = servers.map(s => `<li>${escapeHtml(s.name)} <span class="muted">(${s.memberCount} members)</span></li>`).join("");
     }
+    function showLanding() {
+      appPanel.style.display = "none";
+      loginPanel.style.display = "none";
+      landingPanel.style.display = "flex";
+    }
+
+    function showAuth() {
+      landingPanel.style.display = "none";
+      appPanel.style.display = "none";
+      loginPanel.style.display = "block";
+    }
+
     function showLogin() {
       appPanel.style.display = "none";
+      landingPanel.style.display = "none";
       loginPanel.style.display = "block";
     }
 
@@ -983,6 +1040,12 @@
       if (err || linked) history.replaceState({}, "", location.pathname || "/");
     }
 
+    document.getElementById("landingLoginBtn").addEventListener("click", (e) => { e.preventDefault(); showAuth(); });
+    document.getElementById("landingRegisterBtn").addEventListener("click", (e) => { e.preventDefault(); showAuth(); });
+    document.getElementById("landingGetStartedBtn").addEventListener("click", (e) => { e.preventDefault(); showAuth(); });
+    document.getElementById("landingLogo").addEventListener("click", (e) => { e.preventDefault(); showLanding(); });
+    document.getElementById("backToLandingLink").addEventListener("click", (e) => { e.preventDefault(); showLanding(); });
+
     (async () => {
       fillTimeScrollers();
       await initLoginPanel();
@@ -990,7 +1053,9 @@
       if (ok) {
         showApp();
       } else {
-        showLogin();
+        const params = new URLSearchParams(location.search);
+        if (params.get("error") || params.get("linked")) showAuth();
+        else showLanding();
       }
     })();
   </script>
