@@ -84,16 +84,20 @@ export function initScheduler(discordClient) {
 
 function startJob(schedule) {
   if (jobs.has(schedule.id)) return;
+  const scheduleId = schedule.id;
   const task = cron.schedule(
     schedule.cron,
     async () => {
+      const list = loadSchedules();
+      const s = list.find((x) => x.id === scheduleId);
+      if (!s || s.paused) return;
       if (!client) return;
       try {
-        const channel = await client.channels.fetch(schedule.channelId).catch(() => null);
+        const channel = await client.channels.fetch(s.channelId).catch(() => null);
         if (!channel) return;
-        await channel.send(schedule.payload);
+        await channel.send(s.payload);
       } catch (e) {
-        console.error("Scheduled message failed:", schedule.id, e);
+        console.error("Scheduled message failed:", scheduleId, e);
       }
     },
     { timezone: schedule.timezone || "UTC" }
@@ -128,6 +132,7 @@ export function addSchedule({ channelId, payload, scheduleType, options = {}, cr
     scheduleType,
     options,
     createdBy: createdBy || null,
+    paused: false,
   };
   const schedules = loadSchedules();
   schedules.push(schedule);
@@ -159,8 +164,8 @@ export function removeSchedule(id) {
 }
 
 /**
- * List all schedules (includes createdBy for filtering).
- * @returns {Array<{ id: string, channelId: string, label: string, preview: string, createdBy: string|null }>}
+ * List all schedules (includes createdBy and paused for filtering/UI).
+ * @returns {Array<{ id: string, channelId: string, label: string, preview: string, createdBy: string|null, paused: boolean }>}
  */
 export function listSchedules() {
   return loadSchedules().map((s) => ({
@@ -169,5 +174,48 @@ export function listSchedules() {
     label: s.label,
     preview: (s.payload.content || (s.payload.embeds?.[0]?.title || s.payload.embeds?.[0]?.description) || "").slice(0, 50),
     createdBy: s.createdBy ?? null,
+    paused: !!s.paused,
   }));
+}
+
+/**
+ * Set paused state for a schedule. Does not restart the cron job; the job checks paused on each run.
+ * @param {string} id
+ * @param {boolean} paused
+ * @returns {boolean}
+ */
+export function setSchedulePaused(id, paused) {
+  const schedules = loadSchedules();
+  const idx = schedules.findIndex((s) => s.id === id);
+  if (idx === -1) return false;
+  schedules[idx].paused = !!paused;
+  saveSchedules(schedules);
+  return true;
+}
+
+/**
+ * Update an existing schedule (content, scheduleType, options). Rebuilds cron and restarts the job.
+ * @param {string} id
+ * @param {{ content?: string, scheduleType?: string, timezone?: string, minutes?: number, time?: string, day_of_week?: number }} updates
+ * @returns {{ id: string, label: string } | null}
+ */
+export function updateSchedule(id, updates) {
+  const schedules = loadSchedules();
+  const idx = schedules.findIndex((s) => s.id === id);
+  if (idx === -1) return null;
+  const s = schedules[idx];
+  if (updates.content != null) s.payload = { ...s.payload, content: String(updates.content).trim() || " " };
+  if (updates.scheduleType != null) s.scheduleType = updates.scheduleType;
+  if (updates.timezone != null) s.options = { ...s.options, timezone: updates.timezone };
+  if (updates.minutes != null) s.options = { ...s.options, minutes: updates.minutes };
+  if (updates.time != null) s.options = { ...s.options, time: updates.time };
+  if (updates.day_of_week != null) s.options = { ...s.options, day_of_week: updates.day_of_week };
+  const { cron, label } = buildCron(s.scheduleType, s.options);
+  s.cron = cron;
+  s.label = label;
+  s.timezone = s.options.timezone || "UTC";
+  stopJob(id);
+  saveSchedules(schedules);
+  startJob(s);
+  return { id: s.id, label: s.label };
 }

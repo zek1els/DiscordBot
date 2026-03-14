@@ -2,14 +2,19 @@ import express from "express";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
-import { addSchedule, listSchedules, removeSchedule, getScheduleById } from "./scheduler.js";
+import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedulePaused, updateSchedule } from "./scheduler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const apiKey = process.env.API_KEY;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim();
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim();
-const PUBLIC_URL = process.env.PUBLIC_URL?.trim() || "";
+const PUBLIC_URL = (() => {
+  const u = process.env.PUBLIC_URL?.trim() || "";
+  // Reject common placeholders so OAuth doesn't use a fake redirect
+  if (u && /your-app\.up\.railway\.app|example\.com|localhost/i.test(u)) return "";
+  return u;
+})();
 const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -139,7 +144,7 @@ export function createApi(client) {
     if (apiKey || (DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET)) {
       if (!isAuthenticated(req)) return res.status(401).json({ ok: false });
     }
-    res.json({ ok: true });
+    res.json({ ok: true, isAdmin: isAdmin(req) });
   });
 
   app.get("/api/auth/config", (req, res) => {
@@ -148,8 +153,34 @@ export function createApi(client) {
     });
   });
 
-  // All other /api routes require auth (login/logout/auth/check are above and match first)
+  app.get("/api/auth/redirect-uri", (req, res) => {
+    const redirectUri = PUBLIC_URL ? PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback" : null;
+    res.json({
+      redirectUri,
+      publicUrl: PUBLIC_URL || null,
+      hint: redirectUri
+        ? "Add this EXACT URL in Discord Developer Portal → your app → OAuth2 → Redirects (https, no trailing slash)."
+        : "Set PUBLIC_URL in your environment to your app's public URL (e.g. https://your-app.up.railway.app).",
+    });
+  });
+
+  // All other /api routes require auth (auth/config and auth/redirect-uri are above, so public) (login/logout/auth/check are above and match first)
   app.use("/api", auth);
+
+  /** Admin only: list servers (guilds) the bot is in */
+  app.get("/api/bot/servers", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const servers = client.guilds.cache.map((g) => ({
+        id: g.id,
+        name: g.name,
+        memberCount: g.memberCount ?? 0,
+      }));
+      res.json({ servers });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   app.get("/api/channels", async (req, res) => {
     try {
@@ -259,6 +290,63 @@ export function createApi(client) {
     const removed = removeSchedule(id);
     if (!removed) return res.status(404).json({ error: "Schedule not found" });
     res.json({ ok: true });
+  });
+
+  function canEditSchedule(req, schedule) {
+    if (isAdmin(req)) return true;
+    const user = getCurrentUser(req);
+    return user && schedule.createdBy === user.discordId;
+  }
+
+  app.patch("/api/schedules/:id", (req, res) => {
+    const id = req.params.id;
+    const schedule = getScheduleById(id);
+    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
+    if (!canEditSchedule(req, schedule)) {
+      return res.status(403).json({ error: "You can only edit your own schedules" });
+    }
+    const body = req.body || {};
+    if (typeof body.paused === "boolean") {
+      const ok = setSchedulePaused(id, body.paused);
+      if (!ok) return res.status(404).json({ error: "Schedule not found" });
+      return res.json({ ok: true, paused: body.paused });
+    }
+    const updates = {};
+    if (body.content != null) updates.content = body.content;
+    if (body.scheduleType != null) updates.scheduleType = body.scheduleType;
+    if (body.timezone != null) updates.timezone = body.timezone;
+    if (body.minutes != null) updates.minutes = body.minutes;
+    if (body.time != null) updates.time = body.time;
+    if (body.day_of_week != null) updates.day_of_week = body.day_of_week;
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No updates provided (paused, content, scheduleType, timezone, minutes, time, day_of_week)" });
+    }
+    const result = updateSchedule(id, updates);
+    if (!result) return res.status(404).json({ error: "Schedule not found" });
+    res.json({ ok: true, id: result.id, label: result.label });
+  });
+
+  /** Get one schedule by id (for edit form). Owner or admin. */
+  app.get("/api/schedules/:id", (req, res) => {
+    const id = req.params.id;
+    const schedule = getScheduleById(id);
+    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
+    if (!canEditSchedule(req, schedule)) {
+      return res.status(403).json({ error: "You can only view your own schedules" });
+    }
+    const content = schedule.payload?.content ?? "";
+    res.json({
+      id: schedule.id,
+      channelId: schedule.channelId,
+      content,
+      scheduleType: schedule.scheduleType,
+      timezone: schedule.options?.timezone || "UTC",
+      minutes: schedule.options?.minutes ?? 5,
+      time: schedule.options?.time || "00:00",
+      day_of_week: schedule.options?.day_of_week ?? 0,
+      paused: !!schedule.paused,
+      label: schedule.label,
+    });
   });
 
   return app;
