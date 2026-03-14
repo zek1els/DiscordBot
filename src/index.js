@@ -4,7 +4,7 @@ import { createApi } from "./api.js";
 import { initScheduler, addSchedule, listSchedules, removeSchedule } from "./scheduler.js";
 import { buildMessagePayload, hasMessageContent } from "./embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "./savedMessages.js";
-import { getLogChannelForGuild } from "./deletedLogConfig.js";
+import { getLogChannelIdsForGuild, addLogChannel, removeLogChannel } from "./deletedLogConfig.js";
 
 config();
 
@@ -108,6 +108,15 @@ const scheduleCommand = {
   ],
 };
 
+const logDeletesCommand = {
+  name: "log-deletes",
+  description: "Send deleted message logs to this channel (or turn off)",
+  options: [
+    { name: "here", type: 1, description: "Send deleted message logs to this channel" },
+    { name: "off", type: 1, description: "Stop sending logs to this channel" },
+  ],
+};
+
 const messageCommand = {
   name: "message",
   description: "Save and reuse message templates (rich embeds)",
@@ -148,7 +157,7 @@ client.once("clientReady", async () => {
     const route = guildId
       ? Routes.applicationGuildCommands(client.user.id, guildId)
       : Routes.applicationCommands(client.user.id);
-    await rest.put(route, { body: [sendCommand, scheduleCommand, messageCommand] });
+    await rest.put(route, { body: [sendCommand, scheduleCommand, messageCommand, logDeletesCommand] });
     console.log("Slash command registered.");
   } catch (e) {
     console.error("Failed to register command:", e);
@@ -165,25 +174,46 @@ client.once("clientReady", async () => {
 client.on("messageDelete", async (message) => {
   const guildId = message.guildId ?? message.guild?.id;
   if (!guildId) return;
-  const logChannelId = getLogChannelForGuild(guildId);
-  if (!logChannelId) return;
-  try {
-    const logChannel = await client.channels.fetch(logChannelId).catch(() => null);
-    if (!logChannel?.isTextBased()) return;
-    const channelName = message.channel?.name ?? "unknown";
-    const author = message.author ? `${message.author.tag} (${message.author.id})` : "unknown user";
-    const content = message.content?.trim() || "(no text / message not cached)";
-    const preview = content.length > 400 ? content.slice(0, 400) + "…" : content;
-    await logChannel.send({
-      content: `**Message deleted** in #${channelName}\n**Author:** ${author}\n**Content:**\n${preview}`,
-    });
-  } catch (e) {
-    console.error("Deleted-message log failed:", e);
+  const logChannelIds = getLogChannelIdsForGuild(guildId);
+  if (logChannelIds.length === 0) return;
+  const channelName = message.channel?.name ?? "unknown";
+  const author = message.author ? `${message.author.tag} (${message.author.id})` : "unknown user";
+  const content = message.content?.trim() || "(no text / message not cached)";
+  const preview = content.length > 400 ? content.slice(0, 400) + "…" : content;
+  const text = `**Message deleted** in #${channelName}\n**Author:** ${author}\n**Content:**\n${preview}`;
+  for (const channelId of logChannelIds) {
+    try {
+      const logChannel = await client.channels.fetch(channelId).catch(() => null);
+      if (logChannel?.isTextBased()) await logChannel.send({ content: text });
+    } catch (e) {
+      console.error("Deleted-message log failed for channel", channelId, e);
+    }
   }
 });
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "log-deletes") {
+    const sub = interaction.options.getSubcommand();
+    const channel = interaction.channel;
+    const guildId = interaction.guildId;
+    if (!channel || !guildId) {
+      return interaction.reply({ content: "This command must be used in a server channel.", ephemeral: true });
+    }
+    if (sub === "here") {
+      addLogChannel(channel.id, guildId);
+      return interaction.reply({
+        content: "Deleted message logs will be sent to this channel. The bot monitors every server it’s in; logs for this server will appear here.",
+        ephemeral: false,
+      });
+    }
+    if (sub === "off") {
+      removeLogChannel(channel.id);
+      return interaction.reply({ content: "Stopped sending deleted message logs to this channel.", ephemeral: false });
+    }
+    return;
+  }
 
   if (interaction.commandName === "schedule") {
     const sub = interaction.options.getSubcommand();

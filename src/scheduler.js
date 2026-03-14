@@ -3,6 +3,7 @@ import { CronExpressionParser, CronDate } from "cron-parser";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { getDataDir } from "./dataDir.js";
+import { get as getSavedMessage } from "./savedMessages.js";
 
 function getStorePath() {
   return join(getDataDir(), "schedules.json");
@@ -96,10 +97,18 @@ function startJob(schedule) {
       try {
         const channel = await client.channels.fetch(s.channelId).catch(() => null);
         if (!channel) return;
-        const content = s.messages?.length > 0
-          ? s.messages[Math.floor(Math.random() * s.messages.length)]
-          : (s.payload?.content ?? " ");
-        await channel.send({ content: String(content).trim() || " " });
+        let payloadToSend;
+        if (s.savedMessageNames?.length > 0) {
+          const name = s.savedMessageNames[Math.floor(Math.random() * s.savedMessageNames.length)];
+          payloadToSend = getSavedMessage(name);
+          if (!payloadToSend) payloadToSend = { content: `(Saved message "${name}" not found)` };
+        } else if (s.messages?.length > 0) {
+          const content = s.messages[Math.floor(Math.random() * s.messages.length)];
+          payloadToSend = { content: String(content).trim() || " " };
+        } else {
+          payloadToSend = { content: (s.payload?.content ?? " ").trim() || " " };
+        }
+        await channel.send(payloadToSend);
       } catch (e) {
         console.error("Scheduled message failed:", scheduleId, e);
       }
@@ -119,18 +128,21 @@ function stopJob(id) {
 
 /**
  * Add a new schedule.
- * @param {{ channelId: string, payload?: object, messages?: string[], scheduleType: string, options: object, createdBy?: string }} params
+ * @param {{ channelId: string, payload?: object, messages?: string[], savedMessageNames?: string[], scheduleType: string, options: object, createdBy?: string }} params
  * @returns {{ id: string, label: string }}
  */
-export function addSchedule({ channelId, payload, messages, scheduleType, options = {}, createdBy = null }) {
+export function addSchedule({ channelId, payload, messages, savedMessageNames, scheduleType, options = {}, createdBy = null }) {
   const { cron: cronExpr, label } = buildCron(scheduleType, options);
   const id = generateId();
   const timezone = options.timezone || "UTC";
+  const hasSaved = Array.isArray(savedMessageNames) && savedMessageNames.length > 0;
+  const hasMessages = Array.isArray(messages) && messages.length > 0;
   const schedule = {
     id,
     channelId,
-    payload: payload ?? (messages?.length ? { content: messages[0] } : { content: " " }),
-    messages: Array.isArray(messages) && messages.length > 0 ? messages.map((m) => String(m).trim() || " ") : undefined,
+    payload: payload ?? (hasMessages ? { content: messages[0] } : hasSaved ? { content: " " } : { content: " " }),
+    messages: hasMessages ? messages.map((m) => String(m).trim() || " ") : undefined,
+    savedMessageNames: hasSaved ? savedMessageNames.map((n) => String(n).trim()).filter(Boolean) : undefined,
     cron: cronExpr,
     timezone,
     label,
@@ -213,10 +225,16 @@ export function getNextRun(schedule) {
  */
 export function listSchedules() {
   return loadSchedules().map((s) => {
+    const savedCount = s.savedMessageNames?.length;
     const multi = s.messages?.length;
-    const preview = multi > 1
-      ? `${multi} messages (random)`
-      : (s.messages?.[0] || s.payload?.content || (s.payload?.embeds?.[0]?.title || s.payload?.embeds?.[0]?.description) || "").slice(0, 50);
+    let preview;
+    if (savedCount > 0) {
+      preview = savedCount === 1 ? `Saved: ${s.savedMessageNames[0]}` : `${savedCount} saved messages (random)`;
+    } else if (multi > 1) {
+      preview = `${multi} messages (random)`;
+    } else {
+      preview = (s.messages?.[0] || s.payload?.content || (s.payload?.embeds?.[0]?.title || s.payload?.embeds?.[0]?.description) || "").slice(0, 50);
+    }
     return {
       id: s.id,
       channelId: s.channelId,
@@ -225,6 +243,7 @@ export function listSchedules() {
       createdBy: s.createdBy ?? null,
       paused: !!s.paused,
       messagesCount: multi,
+      savedMessageNames: s.savedMessageNames,
     };
   });
 }
@@ -255,6 +274,11 @@ export function updateSchedule(id, updates) {
   const idx = schedules.findIndex((s) => s.id === id);
   if (idx === -1) return null;
   const s = schedules[idx];
+  if (updates.savedMessageNames != null) {
+    s.savedMessageNames = Array.isArray(updates.savedMessageNames) && updates.savedMessageNames.length > 0
+      ? updates.savedMessageNames.map((n) => String(n).trim()).filter(Boolean)
+      : undefined;
+  }
   if (updates.messages != null) {
     s.messages = Array.isArray(updates.messages) && updates.messages.length > 0
       ? updates.messages.map((m) => String(m).trim() || " ")
