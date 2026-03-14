@@ -25,7 +25,8 @@
     li { padding: 0.5rem; background: #f5f5f5; border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
     .schedule-preview { font-size: 0.875rem; color: #666; }
     #apiKeyWrap { margin-bottom: 1rem; }
-    #apiKeyWrap input { max-width: 240px; }
+    #apiKeyWrap input { max-width: 280px; }
+    .muted { color: #666; font-size: 0.875rem; }
   </style>
 </head>
 <body>
@@ -33,13 +34,15 @@
   <p>Send or schedule plain text messages to a channel. Bot must be in the server.</p>
 
   <div id="apiKeyWrap" class="section">
-    <label for="apiKey">API key (optional for localhost)</label>
-    <input type="password" id="apiKey" placeholder="Leave empty if running locally">
+    <label for="apiKey">API key (required on Railway)</label>
+    <input type="password" id="apiKey" placeholder="Same as API_KEY in Railway variables">
+    <button type="button" id="loadServersBtn" style="margin-top: 0.5rem;">Load servers</button>
+    <div id="serverLoadStatus" class="muted" style="margin-top: 0.25rem;"></div>
   </div>
 
   <div class="section">
     <label for="guild">Server</label>
-    <select id="guild"><option value="">Loading…</option></select>
+    <select id="guild"><option value="">Enter API key and click Load servers</option></select>
     <label for="channel">Channel</label>
     <select id="channel"><option value="">Select a server first</option></select>
     <label for="content">Message</label>
@@ -153,13 +156,31 @@
       if (g) g.channels.forEach(c => { channelEl.innerHTML += `<option value="${c.id}">${escapeHtml(c.name)}</option>`; });
     });
 
+    const serverLoadStatus = document.getElementById("serverLoadStatus");
+    const loadServersBtn = document.getElementById("loadServersBtn");
+
+    try { apiKeyEl.value = localStorage.getItem("discord_scheduler_api_key") || ""; } catch (e) {}
+    apiKeyEl.addEventListener("input", () => { try { localStorage.setItem("discord_scheduler_api_key", apiKeyEl.value); } catch (e) {} });
+    apiKeyEl.addEventListener("blur", () => { try { localStorage.setItem("discord_scheduler_api_key", apiKeyEl.value); } catch (e) {} });
+
     async function loadChannelsAndCache() {
+      serverLoadStatus.textContent = "Loading…";
       const r = await fetch("/api/channels", { headers: headers() });
-      if (!r.ok) return;
-      const data = await r.json();
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        serverLoadStatus.textContent = data.error || "Failed to load. Check your API key.";
+        serverLoadStatus.style.color = "#ed4245";
+        guildEl.innerHTML = "<option value=''>" + (data.error || "Load failed") + "</option>";
+        return;
+      }
+      serverLoadStatus.textContent = "";
+      serverLoadStatus.style.color = "";
       window._guildsCache = data;
       guildEl.innerHTML = "<option value=''>Choose server</option>" + data.guilds.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join("");
+      loadSchedules();
     }
+
+    loadServersBtn.addEventListener("click", () => loadChannelsAndCache());
 
     function escapeHtml(s) {
       const div = document.createElement("div");
@@ -236,7 +257,7 @@
 
     (async () => {
       fillTimeScrollers();
-      await loadChannelsAndCache();
+      serverLoadStatus.textContent = "Enter your API key above and click Load servers.";
       await loadSchedules();
     })();
   </script>
