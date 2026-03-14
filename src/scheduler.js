@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import cronParser from "cron-parser";
+import { CronExpressionParser, CronDate } from "cron-parser";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { getDataDir } from "./dataDir.js";
@@ -166,24 +166,41 @@ export function removeSchedule(id) {
 
 /**
  * Get the next run time for a schedule (accurate to the second), or null if paused.
- * @param {object} schedule - Full schedule object with cron, timezone, paused
+ * Uses cron-parser when possible; falls back to manual calculation for interval_minutes.
+ * @param {object} schedule - Full schedule object with cron, timezone, paused, scheduleType, options
  * @returns {string|null} ISO date string of next run, or null
  */
 export function getNextRun(schedule) {
   if (schedule.paused) return null;
+  const tz = schedule.timezone || schedule.options?.timezone || "UTC";
+
   try {
     // cron-parser expects 6 fields (second minute hour day month dayOfWeek); node-cron uses 5
     const cron = schedule.cron.trim().split(/\s+/).length === 5 ? "0 " + schedule.cron : schedule.cron;
-    const interval = cronParser.parse(cron, {
-      currentDate: new Date(),
-      tz: schedule.timezone || "UTC",
+    const currentInTz = new CronDate(Date.now(), tz);
+    const interval = CronExpressionParser.parse(cron, {
+      currentDate: currentInTz,
+      tz,
     });
     const next = interval.next();
     return next.toDate().toISOString();
   } catch (e) {
-    console.warn("getNextRun failed for schedule", schedule.id, e.message);
-    return null;
+    console.warn("getNextRun (cron-parser) failed for schedule", schedule.id, e.message);
   }
+
+  // Fallback only for interval_minutes (no TZ math needed)
+  if (schedule.scheduleType === "interval_minutes") {
+    try {
+      const now = new Date();
+      const n = Math.max(1, Math.min(60, Number(schedule.options?.minutes) || 1));
+      const msPer = n * 60 * 1000;
+      const next = new Date(Math.ceil(now.getTime() / msPer) * msPer);
+      return next.toISOString();
+    } catch (err) {
+      console.warn("getNextRun (interval fallback) failed", schedule.id, err.message);
+    }
+  }
+  return null;
 }
 
 /**
