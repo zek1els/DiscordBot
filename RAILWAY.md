@@ -28,8 +28,7 @@ In your Railway project: **Your Service** → **Variables** → **Add Variable**
 | Variable        | Value                    | Required |
 |----------------|--------------------------|----------|
 | `DISCORD_TOKEN`| Your bot token from the [Discord Developer Portal](https://discord.com/developers/applications) → Bot → Reset/Copy | **Yes** |
-| `PUBLIC_URL`      | Your app's public URL (e.g. `https://your-app.up.railway.app`) | **Yes** |
-| `PUBLIC_URL`      | Your app’s public URL (e.g. `https://your-app.up.railway.app`) – required for Discord login | If using Discord login |
+| `PUBLIC_URL`   | Your app’s **public** URL (e.g. `https://your-app.up.railway.app`). Use the public domain from Settings → Networking, **not** the private `.railway.internal` URL. | **Yes** (for Discord login) |
 | `DISCORD_CLIENT_ID` | Same as your bot’s Application ID in the Discord Developer Portal | If using Discord login |
 | `ADMIN_DISCORD_IDS` | Comma-separated Discord user IDs that are admins (see all schedules) | No |
 | `API_KEY`         | Optional: for script/programmatic API access        | No |

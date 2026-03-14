@@ -28,6 +28,13 @@
     #apiKeyWrap { margin-bottom: 1rem; }
     #apiKeyWrap input { max-width: 280px; }
     .muted { color: #666; font-size: 0.875rem; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-left: 0.25rem; }
+    .btn-secondary { background: #4f545c; color: #fff; }
+    .btn-secondary:hover { background: #686d73; }
+    #editScheduleModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10; align-items: center; justify-content: center; }
+    #editScheduleModal.show { display: flex; }
+    #editScheduleModal .modal-inner { background: #fff; padding: 1.25rem; border-radius: 8px; max-width: 480px; width: 100%; max-height: 90vh; overflow: auto; }
+    #editScheduleModal h3 { margin-top: 0; }
   </style>
 </head>
 <body>
@@ -37,13 +44,20 @@
     <div id="discordLoginWrap" class="section">
       <a href="/api/auth/discord" id="discordLoginBtn" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #5865f2; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 500;">Login with Discord</a>
     </div>
+    <p id="redirectUriHint" class="muted" style="margin-top: 0.75rem; font-size: 0.8rem; display: none;"></p>
+    <a id="redirectUriLink" href="#" target="_blank" rel="noopener" style="font-size: 0.8rem; word-break: break-all; display: none;"></a>
     <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
   </div>
 
   <div id="appPanel" style="display: none;">
   <h1>Discord Scheduler</h1>
   <p>Send or schedule plain text messages to a channel. Bot must be in the server.</p>
-  <p style="font-size: 0.875rem; color: #666;"><a href="#" id="logoutLink">Log out</a></p>
+  <p style="font-size: 0.875rem; color: #666;"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span></p>
+
+  <div id="botServersSection" class="section" style="display: none;">
+    <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Servers the bot is in</h2>
+    <ul id="botServersList"></ul>
+  </div>
 
   <div id="apiKeyWrap" class="section">
     <label for="apiKey">API key (optional – for script access)</label>
@@ -98,6 +112,42 @@
   </div>
   </div>
 
+  <div id="editScheduleModal">
+    <div class="modal-inner">
+      <h3>Edit schedule</h3>
+      <input type="hidden" id="editScheduleId">
+      <label for="editContent">Message</label>
+      <textarea id="editContent" placeholder="Message text" style="min-height: 60px;"></textarea>
+      <label for="editScheduleType">Repeat</label>
+      <select id="editScheduleType">
+        <option value="interval_minutes">Every N minutes</option>
+        <option value="daily">Daily at a time</option>
+        <option value="weekly">Weekly</option>
+      </select>
+      <div id="editOptsInterval" class="row">
+        <label>Minutes <input type="number" id="editMinutes" value="5" min="1" max="60" style="width: 60px;"></label>
+      </div>
+      <div id="editOptsDaily" class="row" style="display: none;">
+        <label>Hour <select id="editTimeHourDaily" style="width: 70px;"></select></label>
+        <label>Minute <select id="editTimeMinDaily" style="width: 70px;"></select></label>
+        <label>Timezone <select id="editTimezoneDaily" style="width: 200px;"></select></label>
+      </div>
+      <div id="editOptsWeekly" class="row" style="display: none;">
+        <label>Day <select id="editDayOfWeek" style="width: 120px;">
+          <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+          <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+        </select></label>
+        <label>Hour <select id="editTimeHourWeekly" style="width: 70px;"></select></label>
+        <label>Minute <select id="editTimeMinWeekly" style="width: 70px;"></select></label>
+        <label>Timezone <select id="editTimezoneWeekly" style="width: 200px;"></select></label>
+      </div>
+      <div style="margin-top: 1rem;">
+        <button id="editScheduleSaveBtn">Save</button>
+        <button type="button" id="editScheduleCancelBtn" class="btn-secondary btn-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const apiKeyEl = document.getElementById("apiKey");
     const guildEl = document.getElementById("guild");
@@ -134,12 +184,32 @@
 
     async function checkAuth() {
       const r = await fetch("/api/auth/check", fetchOpts());
-      return r.ok;
+      if (!r.ok) return false;
+      const data = await r.json().catch(() => ({}));
+      window._isAdmin = !!data.isAdmin;
+      return true;
     }
 
     function showApp() {
       loginPanel.style.display = "none";
       appPanel.style.display = "block";
+      if (window._isAdmin) {
+        document.getElementById("adminBadge").style.display = "inline";
+        document.getElementById("botServersSection").style.display = "block";
+        loadBotServers();
+      } else {
+        document.getElementById("adminBadge").style.display = "none";
+        document.getElementById("botServersSection").style.display = "none";
+      }
+    }
+
+    async function loadBotServers() {
+      const listEl = document.getElementById("botServersList");
+      const r = await fetch("/api/bot/servers", fetchOpts({ headers: headers() }));
+      if (!r.ok) { listEl.innerHTML = "<li class=\"muted\">Could not load</li>"; return; }
+      const { servers } = await r.json();
+      if (servers.length === 0) { listEl.innerHTML = "<li class=\"muted\">Bot is not in any servers</li>"; return; }
+      listEl.innerHTML = servers.map(s => `<li>${escapeHtml(s.name)} <span class="muted">(${s.memberCount} members)</span></li>`).join("");
     }
     function showLogin() {
       appPanel.style.display = "none";
@@ -185,7 +255,60 @@
       const tzOpts = TIMEZONES.map(tz => `<option value="${escapeHtml(tz)}" ${tz === "UTC" ? "selected" : ""}>${escapeHtml(tz)}</option>`).join("");
       document.getElementById("timezoneDaily").innerHTML = tzOpts;
       document.getElementById("timezoneWeekly").innerHTML = tzOpts;
+      document.getElementById("editTimeHourDaily").innerHTML = hourOpts;
+      document.getElementById("editTimeMinDaily").innerHTML = minOpts;
+      document.getElementById("editTimeHourWeekly").innerHTML = hourOpts;
+      document.getElementById("editTimeMinWeekly").innerHTML = minOpts;
+      document.getElementById("editTimezoneDaily").innerHTML = tzOpts;
+      document.getElementById("editTimezoneWeekly").innerHTML = tzOpts;
     }
+
+    document.getElementById("editScheduleType").addEventListener("change", () => {
+      const v = document.getElementById("editScheduleType").value;
+      document.getElementById("editOptsInterval").style.display = v === "interval_minutes" ? "flex" : "none";
+      document.getElementById("editOptsDaily").style.display = v === "daily" ? "flex" : "none";
+      document.getElementById("editOptsWeekly").style.display = v === "weekly" ? "flex" : "none";
+    });
+
+    document.getElementById("editScheduleModal").addEventListener("click", function(e) {
+      if (e.target === this) this.classList.remove("show");
+    });
+    document.getElementById("editScheduleModal").querySelector(".modal-inner").addEventListener("click", (e) => e.stopPropagation());
+    document.getElementById("editScheduleCancelBtn").addEventListener("click", () => {
+      document.getElementById("editScheduleModal").classList.remove("show");
+    });
+
+    document.getElementById("editScheduleSaveBtn").addEventListener("click", async () => {
+      const id = document.getElementById("editScheduleId").value;
+      const content = document.getElementById("editContent").value.trim();
+      const scheduleType = document.getElementById("editScheduleType").value;
+      const body = { content: content || " ", scheduleType };
+      body.timezone = document.getElementById("editTimezoneDaily").value || "UTC";
+      if (scheduleType === "interval_minutes") {
+        body.minutes = parseInt(document.getElementById("editMinutes").value, 10) || 5;
+      }
+      if (scheduleType === "daily") {
+        const h = document.getElementById("editTimeHourDaily").value;
+        const m = document.getElementById("editTimeMinDaily").value;
+        body.time = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        body.timezone = document.getElementById("editTimezoneDaily").value || "UTC";
+      }
+      if (scheduleType === "weekly") {
+        body.day_of_week = parseInt(document.getElementById("editDayOfWeek").value, 10) ?? 0;
+        const h = document.getElementById("editTimeHourWeekly").value;
+        const m = document.getElementById("editTimeMinWeekly").value;
+        body.time = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+        body.timezone = document.getElementById("editTimezoneWeekly").value || "UTC";
+      }
+      const r = await fetch("/api/schedules/" + id, fetchOpts({ method: "PATCH", headers: headers(), body: JSON.stringify(body) }));
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        document.getElementById("editScheduleModal").classList.remove("show");
+        loadSchedules();
+      } else {
+        alert(data.error || "Failed to update");
+      }
+    });
 
     guildEl.addEventListener("change", () => {
       const id = guildEl.value;
@@ -281,22 +404,54 @@
       if (schedules.length === 0) { scheduleList.innerHTML = "<li>No scheduled messages</li>"; return; }
       scheduleList.innerHTML = schedules.map(s => {
         const where = [s.serverName, s.channelName ? "#" + s.channelName : ""].filter(Boolean).join(" › ") || "Unknown channel";
+        const pausedBadge = s.paused ? ' <span class="muted" style="font-weight: normal;">(Paused)</span>' : "";
         return `
         <li>
           <span>
-            <strong>${escapeHtml(s.label)}</strong>
+            <strong>${escapeHtml(s.label)}</strong>${pausedBadge}
             <span class="schedule-where">${escapeHtml(where)}</span>
             <span class="schedule-preview">${escapeHtml(s.preview || "")}</span>
           </span>
-          <button class="danger" data-id="${escapeHtml(s.id)}">Delete</button>
+          <span>
+            ${s.paused ? `<button class="btn-sm" data-action="resume" data-id="${escapeHtml(s.id)}">Resume</button>` : `<button class="btn-sm btn-secondary" data-action="pause" data-id="${escapeHtml(s.id)}">Pause</button>`}
+            <button class="btn-sm btn-secondary" data-action="edit" data-id="${escapeHtml(s.id)}">Edit</button>
+            <button class="danger btn-sm" data-action="delete" data-id="${escapeHtml(s.id)}">Delete</button>
+          </span>
         </li>
       `;
       }).join("");
       scheduleList.querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", async () => {
           const id = btn.dataset.id;
-          const r = await fetch("/api/schedules/" + id, fetchOpts({ method: "DELETE", headers: headers() }));
-          if (r.ok) loadSchedules();
+          const action = btn.dataset.action;
+          if (action === "delete") {
+            const r = await fetch("/api/schedules/" + id, fetchOpts({ method: "DELETE", headers: headers() }));
+            if (r.ok) loadSchedules();
+            return;
+          }
+          if (action === "pause" || action === "resume") {
+            const r = await fetch("/api/schedules/" + id, fetchOpts({ method: "PATCH", headers: headers(), body: JSON.stringify({ paused: action === "pause" }) }));
+            if (r.ok) loadSchedules();
+            return;
+          }
+          if (action === "edit") {
+            const r = await fetch("/api/schedules/" + id, fetchOpts({ headers: headers() }));
+            if (!r.ok) return;
+            const s = await r.json();
+            document.getElementById("editScheduleId").value = s.id;
+            document.getElementById("editContent").value = s.content || "";
+            document.getElementById("editScheduleType").value = s.scheduleType || "interval_minutes";
+            document.getElementById("editMinutes").value = s.minutes ?? 5;
+            document.getElementById("editTimeHourDaily").value = parseInt((s.time || "00:00").split(":")[0], 10) || 0;
+            document.getElementById("editTimeMinDaily").value = parseInt((s.time || "00:00").split(":")[1], 10) || 0;
+            document.getElementById("editTimezoneDaily").value = s.timezone || "UTC";
+            document.getElementById("editDayOfWeek").value = String(s.day_of_week ?? 0);
+            document.getElementById("editTimeHourWeekly").value = parseInt((s.time || "00:00").split(":")[0], 10) || 0;
+            document.getElementById("editTimeMinWeekly").value = parseInt((s.time || "00:00").split(":")[1], 10) || 0;
+            document.getElementById("editTimezoneWeekly").value = s.timezone || "UTC";
+            document.getElementById("editScheduleType").dispatchEvent(new Event("change"));
+            document.getElementById("editScheduleModal").classList.add("show");
+          }
         });
       });
     }
@@ -305,11 +460,20 @@
       const configRes = await fetch("/api/auth/config");
       const config = await configRes.json().catch(() => ({}));
       document.getElementById("discordLoginWrap").style.display = config.discordLogin ? "block" : "none";
+      const redirectRes = await fetch("/api/auth/redirect-uri");
+      const redirectData = await redirectRes.json().catch(() => ({}));
+      const hintEl = document.getElementById("redirectUriHint");
+      if (hintEl && redirectData.redirectUri) {
+        hintEl.textContent = "In Discord Developer Portal → OAuth2 → Redirects, add this exact URL:";
+        hintEl.style.display = "block";
+        const link = document.getElementById("redirectUriLink");
+        if (link) { link.href = redirectData.redirectUri; link.textContent = redirectData.redirectUri; link.style.display = "block"; }
+      } else if (hintEl) hintEl.style.display = "none";
       if (!config.discordLogin && loginStatus) loginStatus.textContent = "Discord login is not configured. Set DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, and PUBLIC_URL.";
       const params = new URLSearchParams(location.search);
       const err = params.get("error");
       if (err && loginStatus) {
-        const msg = { discord_config: "Discord login not configured", discord_token: "Discord auth failed", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
+        const msg = { discord_config: "Discord login not configured", discord_token: "Invalid redirect URI or Discord auth failed. Check that the redirect URL in Discord matches exactly.", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
         loginStatus.textContent = msg;
         loginStatus.style.color = "#ed4245";
       }
