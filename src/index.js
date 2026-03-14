@@ -202,8 +202,8 @@ client.on("messageCreate", async (message) => {
   const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase();
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
   const cmd = getCustomCommand(commandName);
+  console.log(`Custom command: "${content.slice(0, 50)}" -> name="${commandName}", found=${!!cmd}`);
   if (!cmd) {
-    console.log(`Custom command not found: "${commandName}". Add it in the web app (Custom commands).`);
     return;
   }
   const author = message.author;
