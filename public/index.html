@@ -33,9 +33,12 @@
 <body>
   <div id="loginPanel" style="display: none;">
     <h1>Admin login</h1>
-    <p>Enter the admin password to manage scheduled messages.</p>
-    <div class="section">
-      <label for="adminPassword">Password</label>
+    <p>Log in to manage scheduled messages.</p>
+    <div id="discordLoginWrap" class="section" style="display: none;">
+      <a href="/api/auth/discord" id="discordLoginBtn" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #5865f2; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 500;">Login with Discord</a>
+    </div>
+    <div id="passwordLoginWrap" class="section">
+      <label for="adminPassword">Or use password</label>
       <input type="password" id="adminPassword" placeholder="Admin password" style="max-width: 240px;">
       <button type="button" id="loginBtn" style="margin-top: 0.5rem;">Log in</button>
       <div id="loginStatus" class="muted" style="margin-top: 0.25rem;"></div>
@@ -316,8 +319,23 @@
       });
     }
 
+    async function initLoginPanel() {
+      const configRes = await fetch("/api/auth/config");
+      const config = await configRes.json().catch(() => ({}));
+      document.getElementById("discordLoginWrap").style.display = config.discordLogin ? "block" : "none";
+      document.getElementById("passwordLoginWrap").style.display = config.passwordLogin ? "block" : "none";
+      const params = new URLSearchParams(location.search);
+      const err = params.get("error");
+      if (err && loginStatus) {
+        const msg = { discord_config: "Discord login not configured", not_allowed: "Your Discord account is not allowed to log in", discord_token: "Discord auth failed", discord_user: "Could not load Discord user", discord_failed: "Discord login failed" }[err] || "Login failed";
+        loginStatus.textContent = msg;
+        loginStatus.style.color = "#ed4245";
+      }
+    }
+
     (async () => {
       fillTimeScrollers();
+      await initLoginPanel();
       const ok = await checkAuth();
       if (ok) {
         showApp();

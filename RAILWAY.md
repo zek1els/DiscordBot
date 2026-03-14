@@ -28,11 +28,15 @@ In your Railway project: **Your Service** → **Variables** → **Add Variable**
 | Variable        | Value                    | Required |
 |----------------|--------------------------|----------|
 | `DISCORD_TOKEN`| Your bot token from the [Discord Developer Portal](https://discord.com/developers/applications) → Bot → Reset/Copy | **Yes** |
-| `ADMIN_PASSWORD`  | The password you use to log into the web app        | **Yes** |
+| `ADMIN_PASSWORD`  | Password to log into the web app (use this and/or Discord login) | Recommended |
+| `PUBLIC_URL`      | Your app’s public URL (e.g. `https://your-app.up.railway.app`) – required for Discord login | If using Discord login |
+| `DISCORD_CLIENT_ID` | Same as your bot’s Application ID in the Discord Developer Portal | If using Discord login |
+| `DISCORD_CLIENT_SECRET` | From Discord Developer Portal → OAuth2 → Client Secret | If using Discord login |
+| `ALLOWED_DISCORD_IDS` | Optional: comma-separated Discord user IDs that can log in (if empty, any Discord user can) | No |
 | `API_KEY`         | Optional: for script/programmatic API access        | No |
-| `GUILD_ID`     | Your Discord server ID (optional; makes slash commands show up in ~1 min instead of up to 1 hour) | No |
+| `GUILD_ID`        | Your Discord server ID (optional; slash commands show in ~1 min) | No |
 
-- **Admin login:** The app is reachable on the internet. If `API_KEY` is not set, the web app and API only accept requests from localhost, so the hosted site would be unusable. Set `API_KEY` and then enter that same value in the “API key” field on the web app so your browser can call the API.
+- **Login:** Use **ADMIN_PASSWORD** and/or **Login with Discord**. For Discord: in the [Developer Portal](https://discord.com/developers/applications) → your app → OAuth2 → Redirects, add `https://YOUR_RAILWAY_DOMAIN/api/auth/discord/callback`. Set `PUBLIC_URL` to that same base URL (e.g. `https://your-app.up.railway.app`).
 
 ## 4. Get your app URL
 
