@@ -8,7 +8,7 @@ import { buildMessagePayload, hasMessageContent } from "./embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "./savedMessages.js";
 import { getLogChannelIdsForGuild, addLogChannel, removeLogChannel, getAllLogChannels } from "./deletedLogConfig.js";
 import { list as listCustomCommands, get as getCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
-import { getConfig as getJailConfig, setConfig as setJailConfig } from "./jailConfig.js";
+import { getConfig as getJailConfig, setConfig as setJailConfig, saveJailedRoles, popJailedRoles } from "./jailConfig.js";
 import { getDataDir } from "./dataDir.js";
 
 config();
@@ -271,16 +271,27 @@ client.on("messageCreate", async (message) => {
     try {
       const member = await message.guild.members.fetch(target.id);
       if (commandName === "jail") {
-        if (cfg.memberRoleId) await member.roles.remove(cfg.memberRoleId).catch(() => {});
-        if (cfg.criminalRoleId) await member.roles.add(cfg.criminalRoleId).catch(() => {});
+        const currentRoleIds = member.roles.cache
+          .filter((r) => r.id !== message.guild.id && r.id !== cfg.criminalRoleId)
+          .map((r) => r.id);
+        saveJailedRoles(message.guild.id, target.id, currentRoleIds);
+        const rolesToRemove = currentRoleIds.filter((id) => id !== cfg.criminalRoleId);
+        if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
+        if (cfg.criminalRoleId) await member.roles.add(cfg.criminalRoleId);
         await message.channel.send({ content: `<@${target.id}> has been jailed.` });
       } else {
-        if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId).catch(() => {});
-        if (cfg.memberRoleId) await member.roles.add(cfg.memberRoleId).catch(() => {});
+        if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId);
+        const savedRoles = popJailedRoles(message.guild.id, target.id);
+        if (savedRoles && savedRoles.length > 0) {
+          await member.roles.add(savedRoles);
+        } else if (cfg.memberRoleId) {
+          await member.roles.add(cfg.memberRoleId);
+        }
         await message.channel.send({ content: `<@${target.id}> has been released from jail.` });
       }
     } catch (e) {
-      await message.channel.send({ content: "Failed to update roles. Make sure the bot's role is above the member/criminal roles." }).catch(() => {});
+      console.error("Jail role update failed:", e);
+      await message.channel.send({ content: `Failed to update roles: ${e.message || e}\nMake sure the bot has **Manage Roles** permission and its role is **above** the member/criminal roles in the role list.` }).catch(() => {});
     }
     return;
   }

@@ -67,3 +67,55 @@ export function removeConfig(guildId) {
 export function getAllConfigs() {
   return loadAll();
 }
+
+// --- Jailed-user role storage (saves roles stripped on jail so unjail can restore them) ---
+
+function getJailedStorePath() {
+  return join(getDataDir(), "jailed-users.json");
+}
+
+function loadJailed() {
+  try {
+    const p = getJailedStorePath();
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf8"));
+  } catch (e) {
+    console.error("Failed to load jailed users:", e);
+  }
+  return {};
+}
+
+function saveJailed(data) {
+  const dir = getDataDir();
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(getJailedStorePath(), JSON.stringify(data, null, 2), "utf8");
+}
+
+/**
+ * Save the roles a user had before being jailed.
+ * @param {string} guildId
+ * @param {string} userId
+ * @param {string[]} roleIds
+ */
+export function saveJailedRoles(guildId, userId, roleIds) {
+  const all = loadJailed();
+  if (!all[guildId]) all[guildId] = {};
+  all[guildId][userId] = roleIds;
+  saveJailed(all);
+}
+
+/**
+ * Get and remove the saved roles for a jailed user (consumed on unjail).
+ * @param {string} guildId
+ * @param {string} userId
+ * @returns {string[] | null}
+ */
+export function popJailedRoles(guildId, userId) {
+  const all = loadJailed();
+  const roles = all[guildId]?.[userId] ?? null;
+  if (roles) {
+    delete all[guildId][userId];
+    if (Object.keys(all[guildId]).length === 0) delete all[guildId];
+    saveJailed(all);
+  }
+  return roles;
+}
