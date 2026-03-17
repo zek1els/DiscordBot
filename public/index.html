@@ -177,6 +177,7 @@
     <a href="#" data-page="schedules">Schedules</a>
     <a href="#" data-page="saved">Saved messages</a>
     <a href="#" data-page="commands">Custom commands</a>
+    <a href="#" data-page="jail">Jail</a>
     <a href="#" data-page="logs" id="navLogs" style="display: none;">Deleted logs</a>
   </nav>
 
@@ -276,6 +277,19 @@
       <p id="savedMessageStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
       <h3 style="font-size: 0.95rem; margin-top: 1rem;">Saved templates</h3>
       <ul id="savedMessagesList"></ul>
+    </div>
+  </div>
+
+  <div id="pageJail" class="page">
+    <div class="section">
+      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Jail system</h2>
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">The jail system lets you remove server access from a user and give them a "criminal" role instead.</p>
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;"><strong>Setup:</strong> Run <code>/jail-setup</code> in Discord and pick the <strong>member role</strong> (gives server access) and the <strong>criminal role</strong>.<br>
+      <strong>Assign to all:</strong> Run <code>/jail-assign-all</code> to give the member role to every existing member who doesn't have it.<br>
+      <strong>Usage:</strong> <code>!jail @user</code> removes member role + adds criminal role. <code>!unjail @user</code> reverses it.<br>
+      <strong>Auto-role:</strong> New members automatically get the member role when they join.</p>
+      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Configured servers</h3>
+      <ul id="jailConfigList"></ul>
     </div>
   </div>
 
@@ -791,6 +805,7 @@
       if (panel) panel.classList.add("active");
       if (page === "saved") loadSavedMessagesPage();
       if (page === "commands") loadCustomCommandsPage();
+      if (page === "jail") loadJailConfigPage();
       if (page === "logs" && window._isAdmin) loadDeletedLogConfig();
     });
 
@@ -814,6 +829,43 @@
         });
       });
     })();
+
+    async function loadJailConfigPage() {
+      const listEl = document.getElementById("jailConfigList");
+      if (!listEl) return;
+      listEl.innerHTML = "<li class=\"muted\">Loading...</li>";
+      try {
+        const r = await fetch("/api/jail-config", { headers: authHeaders() });
+        const data = await r.json();
+        if (!data.configs || data.configs.length === 0) {
+          listEl.innerHTML = "<li class=\"muted\">No servers configured yet. Run <code>/jail-setup</code> in Discord.</li>";
+          return;
+        }
+        listEl.innerHTML = "";
+        for (const c of data.configs) {
+          const li = document.createElement("li");
+          li.style.marginBottom = "0.5rem";
+          li.innerHTML = `<strong>${esc(c.guildName || c.guildId)}</strong><br>
+            <span class="muted">Member role:</span> ${esc(c.memberRoleName || c.memberRoleId)}<br>
+            <span class="muted">Criminal role:</span> ${esc(c.criminalRoleName || c.criminalRoleId)}`;
+          if (window._isAdmin) {
+            const btn = document.createElement("button");
+            btn.textContent = "Remove";
+            btn.className = "btn-sm btn-secondary";
+            btn.style.marginLeft = "0.5rem";
+            btn.onclick = async () => {
+              if (!confirm("Remove jail config for this server?")) return;
+              await fetch(`/api/jail-config/${c.guildId}`, { method: "DELETE", headers: authHeaders() });
+              loadJailConfigPage();
+            };
+            li.appendChild(btn);
+          }
+          listEl.appendChild(li);
+        }
+      } catch (e) {
+        listEl.innerHTML = "<li class=\"muted\">Failed to load jail config.</li>";
+      }
+    }
 
     async function loadDeletedLogConfig() {
       const listEl = document.getElementById("deletedLogChannelsList");

@@ -6,6 +6,7 @@ import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedul
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
+import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { create as createUser, validate as validateUser, getById, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser } from "./users.js";
 import { getDataDir } from "./dataDir.js";
 
@@ -376,6 +377,47 @@ export function createApi(client) {
     try {
       const removed = removeCustomCommand(name);
       if (!removed) return res.status(404).json({ error: "Custom command not found" });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Jail config: list all guilds with jail configured. */
+  app.get("/api/jail-config", async (req, res) => {
+    try {
+      const configs = getAllJailConfigs();
+      const enriched = await Promise.all(
+        Object.entries(configs).map(async ([guildId, cfg]) => {
+          let guildName = "";
+          let memberRoleName = "";
+          let criminalRoleName = "";
+          try {
+            const guild = await client.guilds.fetch(guildId).catch(() => null);
+            if (guild) {
+              guildName = guild.name;
+              const mRole = guild.roles.cache.get(cfg.memberRoleId);
+              memberRoleName = mRole?.name || cfg.memberRoleId;
+              const cRole = guild.roles.cache.get(cfg.criminalRoleId);
+              criminalRoleName = cRole?.name || cfg.criminalRoleId;
+            }
+          } catch (_) {}
+          return { guildId, guildName, memberRoleId: cfg.memberRoleId, memberRoleName, criminalRoleId: cfg.criminalRoleId, criminalRoleName };
+        })
+      );
+      res.json({ configs: enriched });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Remove jail config for a guild (admin only). */
+  app.delete("/api/jail-config/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const { guildId } = req.params;
+    try {
+      const removed = removeJailConfig(guildId);
+      if (!removed) return res.status(404).json({ error: "Not found" });
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });

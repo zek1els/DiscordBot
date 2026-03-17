@@ -8,6 +8,7 @@ import { buildMessagePayload, hasMessageContent } from "./embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "./savedMessages.js";
 import { getLogChannelIdsForGuild, addLogChannel, removeLogChannel, getAllLogChannels } from "./deletedLogConfig.js";
 import { list as listCustomCommands, get as getCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
+import { getConfig as getJailConfig, setConfig as setJailConfig } from "./jailConfig.js";
 import { getDataDir } from "./dataDir.js";
 
 config();
@@ -18,14 +19,17 @@ function ensureDataStorage() {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   const customCommandsPath = join(dir, "custom-commands.json");
   const deletedLogPath = join(dir, "deleted-log-config.json");
+  const jailConfigPath = join(dir, "jail-config.json");
   if (!existsSync(customCommandsPath)) writeFileSync(customCommandsPath, "[]", "utf8");
   if (!existsSync(deletedLogPath)) writeFileSync(deletedLogPath, JSON.stringify({ channels: [] }, null, 2), "utf8");
+  if (!existsSync(jailConfigPath)) writeFileSync(jailConfigPath, "{}", "utf8");
 }
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMembers, // Required for auto-role on join and !jail
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent, // Required for !custom commands and deleted-message logging
   ],
@@ -159,7 +163,21 @@ const messageCommand = {
   ],
 };
 
-const slashCommands = [sendCommand, scheduleCommand, messageCommand, logDeletesCommand];
+const jailSetupCommand = {
+  name: "jail-setup",
+  description: "Configure the jail system: set the member role and criminal role",
+  options: [
+    { name: "member_role", type: 8, description: "Role that grants server access (given to everyone)", required: true },
+    { name: "criminal_role", type: 8, description: "Role assigned when jailed (member role removed)", required: true },
+  ],
+};
+
+const jailAssignAllCommand = {
+  name: "jail-assign-all",
+  description: "Give the member role to every current member who doesn't have it",
+};
+
+const slashCommands = [sendCommand, scheduleCommand, messageCommand, logDeletesCommand, jailSetupCommand, jailAssignAllCommand];
 
 client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -203,6 +221,16 @@ client.on("guildCreate", async (guild) => {
   }
 });
 
+client.on("guildMemberAdd", async (member) => {
+  const cfg = getJailConfig(member.guild.id);
+  if (!cfg?.memberRoleId) return;
+  try {
+    await member.roles.add(cfg.memberRoleId);
+  } catch (e) {
+    console.error(`Failed to assign member role to ${member.user?.tag} in ${member.guild.name}:`, e.message || e);
+  }
+});
+
 // Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
 const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
 
@@ -219,6 +247,33 @@ client.on("messageCreate", async (message) => {
   const firstSpace = afterPrefix.indexOf(" ");
   const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase().replace(/\s/g, "");
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
+
+  // Built-in: !jail @user and !unjail @user
+  if (commandName === "jail" || commandName === "unjail") {
+    const guildId = message.guildId ?? message.guild?.id;
+    if (!guildId) return;
+    const cfg = getJailConfig(guildId);
+    if (!cfg) return message.channel.send({ content: "Jail not configured. An admin must run `/jail-setup` first." }).catch(() => {});
+    const mentionedUsers = message.mentions?.users ? Array.from(message.mentions.users.values()) : [];
+    const target = mentionedUsers[0];
+    if (!target) return message.channel.send({ content: `Usage: \`!${commandName} @user\`` }).catch(() => {});
+    try {
+      const member = await message.guild.members.fetch(target.id);
+      if (commandName === "jail") {
+        if (cfg.memberRoleId) await member.roles.remove(cfg.memberRoleId).catch(() => {});
+        if (cfg.criminalRoleId) await member.roles.add(cfg.criminalRoleId).catch(() => {});
+        await message.channel.send({ content: `<@${target.id}> has been jailed.` });
+      } else {
+        if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId).catch(() => {});
+        if (cfg.memberRoleId) await member.roles.add(cfg.memberRoleId).catch(() => {});
+        await message.channel.send({ content: `<@${target.id}> has been released from jail.` });
+      }
+    } catch (e) {
+      await message.channel.send({ content: "Failed to update roles. Make sure the bot's role is above the member/criminal roles." }).catch(() => {});
+    }
+    return;
+  }
+
   const cmd = getCustomCommand(commandName);
   if (!cmd) return;
   const author = message.author;
@@ -275,6 +330,54 @@ client.on("messageDelete", async (message) => {
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "jail-setup") {
+    if (!interaction.memberPermissions?.has("ManageRoles")) {
+      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", ephemeral: true });
+    }
+    const memberRole = interaction.options.getRole("member_role");
+    const criminalRole = interaction.options.getRole("criminal_role");
+    if (!memberRole || !criminalRole) {
+      return interaction.reply({ content: "Both roles are required.", ephemeral: true });
+    }
+    try {
+      setJailConfig(interaction.guildId, memberRole.id, criminalRole.id);
+      return interaction.reply({
+        content: `Jail configured.\n**Member role:** ${memberRole.name} (given to all new members)\n**Criminal role:** ${criminalRole.name} (given when jailed)\n\nUse \`!jail @user\` to jail and \`!unjail @user\` to release.\nRun \`/jail-assign-all\` to give the member role to everyone currently in the server.`,
+        ephemeral: false,
+      });
+    } catch (e) {
+      return interaction.reply({ content: "Failed to save jail config.", ephemeral: true });
+    }
+  }
+
+  if (interaction.commandName === "jail-assign-all") {
+    if (!interaction.memberPermissions?.has("ManageRoles")) {
+      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", ephemeral: true });
+    }
+    const cfg = getJailConfig(interaction.guildId);
+    if (!cfg?.memberRoleId) {
+      return interaction.reply({ content: "Jail not configured. Run `/jail-setup` first.", ephemeral: true });
+    }
+    await interaction.deferReply();
+    try {
+      const members = await interaction.guild.members.fetch();
+      let assigned = 0;
+      for (const [, member] of members) {
+        if (member.user.bot) continue;
+        if (member.roles.cache.has(cfg.memberRoleId)) continue;
+        if (cfg.criminalRoleId && member.roles.cache.has(cfg.criminalRoleId)) continue;
+        try {
+          await member.roles.add(cfg.memberRoleId);
+          assigned++;
+        } catch (_) {}
+      }
+      await interaction.editReply({ content: `Done. Assigned the member role to **${assigned}** member(s). Members who are jailed (have the criminal role) were skipped.` });
+    } catch (e) {
+      await interaction.editReply({ content: "Failed. Make sure the bot has Manage Roles permission and its role is above the member role." });
+    }
+    return;
+  }
 
   if (interaction.commandName === "log-deletes") {
     const sub = interaction.options.getSubcommand();
