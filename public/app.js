@@ -72,6 +72,7 @@
       document.getElementById("navUsers").style.display = "";
       document.getElementById("navWarnings").style.display = "";
       document.getElementById("navAuditLog").style.display = "";
+      document.getElementById("navAdminDivider").style.display = "";
       loadBotServers();
     } else {
       document.getElementById("adminBadge").style.display = "none";
@@ -80,6 +81,7 @@
       document.getElementById("navUsers").style.display = "none";
       document.getElementById("navWarnings").style.display = "none";
       document.getElementById("navAuditLog").style.display = "none";
+      document.getElementById("navAdminDivider").style.display = "none";
     }
     const discordWrap = document.getElementById("discordLinkWrap");
     const linkText = document.getElementById("discordLinkText");

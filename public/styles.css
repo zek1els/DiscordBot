@@ -140,10 +140,15 @@ code { background: var(--accent-soft); color: var(--accent); padding: 0.15rem 0.
 }
 .nav a {
   color: var(--text-muted); text-decoration: none;
-  padding: 0.5rem 0.9rem; border-radius: 10px;
-  font-size: 0.85rem; font-weight: 500;
+  padding: 0.45rem 0.75rem; border-radius: 10px;
+  font-size: 0.82rem; font-weight: 500;
   transition: color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.15s;
-  position: relative;
+  position: relative; white-space: nowrap;
+}
+.nav-divider {
+  width: 1px; align-self: center;
+  height: 1.2rem; background: var(--border);
+  margin: 0 0.1rem; flex-shrink: 0;
 }
 .nav a:hover { color: var(--text); background: var(--accent-soft); transform: translateY(-1px); }
 .nav a.active {
