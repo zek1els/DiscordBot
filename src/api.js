@@ -1,29 +1,23 @@
 import express from "express";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { randomBytes } from "crypto";
-import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedulePaused, updateSchedule, getNextRun } from "./scheduler.js";
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage, migrateIfNeeded as migrateSavedMessages } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
-import { create as createUser, validate as validateUser, getById, getByEmail, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser, listUsers, deleteUser } from "./users.js";
-import { isSmtpConfigured, sendVerificationCode, verifyCode, setPendingRegistration, popPendingRegistration, hasPendingRegistration } from "./emailVerification.js";
+import { hasAnyUser } from "./users.js";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { getDataDir } from "./dataDir.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerScheduleRoutes } from "./routes/schedules.js";
+import { registerAdminRoutes } from "./routes/admin.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const apiKey = process.env.API_KEY;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID?.trim();
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET?.trim();
-const PUBLIC_URL = (() => {
-  const u = process.env.PUBLIC_URL?.trim() || "";
-  // Reject common placeholders so OAuth doesn't use a fake redirect
-  if (u && /your-app\.up\.railway\.app|example\.com|localhost/i.test(u)) return "";
-  return u;
-})();
 const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -142,273 +136,22 @@ export function createApi(client) {
     res.redirect(url);
   });
 
-  // Register – public. If email verification is configured, only sends a code
-  // (account is created later in /api/auth/verify). Otherwise creates immediately.
-  app.post("/api/auth/register", async (req, res) => {
-    const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
-    const trimmedEmail = String(email).trim();
-    const pw = String(password);
-    if (pw.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
-    // Check if email is already taken
-    if (getByEmail(trimmedEmail)) {
-      return res.status(400).json({ error: "An account with this email already exists" });
-    }
-    const needsVerification = isSmtpConfigured();
-    if (needsVerification) {
-      // Don't create account yet — store pending registration and send code
-      setPendingRegistration(trimmedEmail, pw);
-      const sent = await sendVerificationCode(trimmedEmail);
-      return res.json({ ok: true, needsVerification: true, email: trimmedEmail.toLowerCase(), emailFailed: !sent });
-    }
-    // No email verification — create account immediately
-    try {
-      createUser(trimmedEmail, pw, { verified: true });
-    } catch (e) {
-      return res.status(400).json({ error: e.message });
-    }
-    const user = validateUser(trimmedEmail, pw);
-    if (!user) return res.status(500).json({ error: "Account created but login failed" });
-    const sessionToken = randomBytes(24).toString("hex");
-    sessionSet(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
-    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800");
-    return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
-  });
+  const helpers = { sessions, sessionSet, sessionDelete, getCookie, getCurrentUser, getOwnerId, isAuthenticated, isAdmin };
 
-  // Verify email with 6-digit code – public
-  // Creates the account on success (account is NOT created during /register)
-  app.post("/api/auth/verify", (req, res) => {
-    const { email, code } = req.body || {};
-    if (!email || !code) return res.status(400).json({ error: "Email and code required" });
-    const trimmedEmail = String(email).trim();
-    const result = verifyCode(trimmedEmail, String(code));
-    if (result === "expired") return res.status(400).json({ error: "Code expired. Click resend to get a new one." });
-    if (result === "invalid") return res.status(400).json({ error: "Invalid code. Check your email and try again." });
-    // Retrieve the pending registration data
-    const pending = popPendingRegistration(trimmedEmail);
-    if (!pending) {
-      return res.status(400).json({ error: "Registration expired. Please register again." });
-    }
-    // Now create the account
-    try {
-      createUser(pending.email, pending.password, { verified: true });
-    } catch (e) {
-      return res.status(400).json({ error: e.message });
-    }
-    const user = getByEmail(trimmedEmail);
-    if (!user) return res.status(500).json({ error: "User not found" });
-    const sessionToken = randomBytes(24).toString("hex");
-    sessionSet(sessionToken, { userId: user.id, email: user.email });
-    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800");
-    return res.json({ ok: true, user: { email: user.email } });
-  });
+  // Auth routes (registered BEFORE the auth middleware so they remain public)
+  registerAuthRoutes(app, helpers);
 
-  // Resend verification code – public
-  app.post("/api/auth/resend-code", async (req, res) => {
-    const { email } = req.body || {};
-    if (!email) return res.status(400).json({ error: "Email required" });
-    const trimmedEmail = String(email).trim();
-    // Check for pending registration (account not yet created)
-    if (!hasPendingRegistration(trimmedEmail)) {
-      return res.status(404).json({ error: "No pending registration for this email. Please register again." });
-    }
-    const sent = await sendVerificationCode(trimmedEmail);
-    if (!sent) return res.status(500).json({ error: "Failed to send email. Please try again." });
-    return res.json({ ok: true });
-  });
-
-  // Log in with email + password – public
-  app.post("/api/auth/login", async (req, res) => {
-    const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
-    const user = validateUser(String(email).trim(), String(password));
-    if (!user) return res.status(401).json({ error: "Invalid email or password" });
-    if (!user.verified) {
-      return res.status(403).json({ error: "Email not verified. Please register again to verify your email." });
-    }
-    const sessionToken = randomBytes(24).toString("hex");
-    sessionSet(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
-    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800");
-    return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
-  });
-
-  // Discord OAuth2: redirect to Discord (?link=1 to link when already logged in)
-  app.get("/api/auth/discord", (req, res) => {
-    if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET || !PUBLIC_URL) {
-      return res.status(503).json({ error: "Discord not configured (DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, PUBLIC_URL)" });
-    }
-    const redirectUri = PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback";
-    const isLink = req.query.link === "1";
-    const sessionToken = getCookie(req, "admin_session");
-    const session = sessionToken ? sessions.get(sessionToken) : null;
-    if (isLink && (!session || !session.userId)) {
-      return res.redirect("/?error=link_requires_login");
-    }
-    const url = new URL("https://discord.com/api/oauth2/authorize");
-    url.searchParams.set("client_id", DISCORD_CLIENT_ID);
-    url.searchParams.set("redirect_uri", redirectUri);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", "identify");
-    url.searchParams.set("state", isLink ? "link" : "login");
-    res.redirect(url.toString());
-  });
-
-  // Discord OAuth2: callback (link account or login with Discord)
-  app.get("/api/auth/discord/callback", async (req, res) => {
-    const { code, state } = req.query;
-    if (!code || !DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET || !PUBLIC_URL) {
-      return res.redirect("/?error=discord_config");
-    }
-    const redirectUri = PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback";
-    const isLink = state === "link";
-    const sessionToken = getCookie(req, "admin_session");
-    const session = sessionToken ? sessions.get(sessionToken) : null;
-    try {
-      const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: DISCORD_CLIENT_ID,
-          client_secret: DISCORD_CLIENT_SECRET,
-          grant_type: "authorization_code",
-          code: String(code),
-          redirect_uri: redirectUri,
-        }),
-      });
-      if (!tokenRes.ok) {
-        const err = await tokenRes.text();
-        return res.redirect("/?error=discord_token&m=" + encodeURIComponent(err.slice(0, 80)));
-      }
-      const tokenData = await tokenRes.json();
-      const userRes = await fetch("https://discord.com/api/users/@me", {
-        headers: { Authorization: `Bearer ${tokenData.access_token}` },
-      });
-      if (!userRes.ok) return res.redirect("/?error=discord_user");
-      const discordUser = await userRes.json();
-      const discordId = discordUser.id;
-      const username = discordUser.username || discordUser.global_name || "User";
-      if (isLink && session?.userId) {
-        setDiscord(session.userId, discordId, username);
-        sessionSet(sessionToken, { ...session, discordId, username });
-        return res.redirect("/?linked=1");
-      }
-      const appUser = getByDiscordId(discordId);
-      if (appUser) {
-        const sessionTokenNew = randomBytes(24).toString("hex");
-        sessionSet(sessionTokenNew, { userId: appUser.id, email: appUser.email, discordId: appUser.discordId, username: appUser.discordUsername });
-        res.setHeader("Set-Cookie", "admin_session=" + sessionTokenNew + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800");
-        return res.redirect("/");
-      }
-      return res.redirect("/?error=discord_not_linked");
-    } catch (e) {
-      console.error("Discord OAuth error:", e);
-      return res.redirect("/?error=discord_failed");
-    }
-  });
-
-  app.post("/api/auth/unlink-discord", (req, res) => {
-    const user = getCurrentUser(req);
-    if (!user || !user.userId) return res.status(401).json({ error: "Unauthorized" });
-    try {
-      unsetDiscord(user.userId);
-      const token = getCookie(req, "admin_session");
-      if (token && sessions.has(token)) {
-        const s = sessions.get(token);
-        sessionSet(token, { userId: s.userId, email: s.email });
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.post("/api/logout", (req, res) => {
-    const token = getCookie(req, "admin_session");
-    if (token) sessionDelete(token);
-    res.setHeader("Set-Cookie", "admin_session=; Path=/; HttpOnly; Max-Age=0");
-    res.json({ ok: true });
-  });
-
-  app.get("/api/auth/check", (req, res) => {
-    if (!isAuthenticated(req)) return res.status(401).json({ ok: false });
-    const user = getCurrentUser(req);
-    res.json({
-      ok: true,
-      isAdmin: isAdmin(req),
-      user: user ? { email: user.email, discordId: user.discordId, username: user.username } : null,
-    });
-  });
-
-  app.get("/api/auth/config", (req, res) => {
-    res.json({
-      discordLogin: !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && PUBLIC_URL),
-      canRegister: true,
-      emailVerification: isSmtpConfigured(),
-    });
-  });
-
-  app.get("/api/auth/redirect-uri", (req, res) => {
-    const redirectUri = PUBLIC_URL ? PUBLIC_URL.replace(/\/$/, "") + "/api/auth/discord/callback" : null;
-    res.json({
-      redirectUri,
-      publicUrl: PUBLIC_URL || null,
-      hint: redirectUri
-        ? "Add this EXACT URL in Discord Developer Portal → your app → OAuth2 → Redirects (https, no trailing slash)."
-        : "Set PUBLIC_URL in your environment to your app's public URL (e.g. https://your-app.up.railway.app).",
-    });
-  });
-
-  // All other /api routes require auth (auth/config and auth/redirect-uri are above, so public) (login/logout/auth/check are above and match first)
+  // All other /api routes require auth
   app.use("/api", auth);
 
-  /** Admin only: list all registered users (no passwords). */
-  app.get("/api/admin/users", (req, res) => {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
-    try {
-      res.json({ users: listUsers() });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  // Admin routes
+  registerAdminRoutes(app, client, { isAdmin, getCurrentUser, sessions, sessionDelete });
 
-  /** Admin only: delete a user account by id. Also removes their sessions. */
-  app.delete("/api/admin/users/:id", (req, res) => {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
-    const userId = req.params.id;
-    // Prevent self-deletion
-    const currentUser = getCurrentUser(req);
-    if (currentUser && currentUser.userId === userId) {
-      return res.status(400).json({ error: "Cannot delete your own account" });
-    }
-    try {
-      const deleted = deleteUser(userId);
-      if (!deleted) return res.status(404).json({ error: "User not found" });
-      // Remove any active sessions for this user
-      for (const [token, session] of sessions) {
-        if (session.userId === userId) sessionDelete(token);
-      }
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  // Schedule routes
+  registerScheduleRoutes(app, client, { getCurrentUser, getOwnerId, isAdmin });
 
-  /** Admin only: list servers (guilds) the bot is in */
-  app.get("/api/bot/servers", async (req, res) => {
-    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
-    try {
-      const servers = client.guilds.cache.map((g) => ({
-        id: g.id,
-        name: g.name,
-        memberCount: g.memberCount ?? 0,
-      }));
-      res.json({ servers });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
+  // --- Inline smaller route groups ---
 
-  /** Get channels where deleted-message logs are sent (run /log-deletes here in Discord to add). Enriched with guild/channel names. */
   app.get("/api/deleted-log-config", async (req, res) => {
     try {
       const channels = getAllLogChannels();
@@ -432,7 +175,6 @@ export function createApi(client) {
     }
   });
 
-  /** Remove a channel from receiving deleted logs (admin only). Use /log-deletes off in Discord to disable from there. */
   app.delete("/api/deleted-log-config/channel/:channelId", (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
     const { channelId } = req.params;
@@ -445,7 +187,6 @@ export function createApi(client) {
     }
   });
 
-  /** List saved message templates for the current user. */
   app.get("/api/saved-messages", (req, res) => {
     try {
       const user = getCurrentUser(req);
@@ -457,7 +198,6 @@ export function createApi(client) {
     }
   });
 
-  /** Create or overwrite a saved message for the current user. */
   app.post("/api/saved-messages", (req, res) => {
     const { name, content } = req.body || {};
     if (!name || typeof name !== "string" || name.trim() === "") {
@@ -474,7 +214,6 @@ export function createApi(client) {
     }
   });
 
-  /** Delete a saved message by name for the current user. */
   app.delete("/api/saved-messages/:name", (req, res) => {
     const name = req.params.name;
     if (!name) return res.status(400).json({ error: "name required" });
@@ -489,7 +228,6 @@ export function createApi(client) {
     }
   });
 
-  /** List custom commands for a guild. */
   app.get("/api/custom-commands", (req, res) => {
     const guildId = req.query.guildId;
     if (!guildId) return res.status(400).json({ error: "guildId query parameter required" });
@@ -501,7 +239,6 @@ export function createApi(client) {
     }
   });
 
-  /** Create or update a custom command for a guild. */
   app.post("/api/custom-commands", (req, res) => {
     const { name, template, guildId } = req.body || {};
     if (!guildId) return res.status(400).json({ error: "guildId required" });
@@ -516,7 +253,6 @@ export function createApi(client) {
     }
   });
 
-  /** Delete a custom command by name for a guild. */
   app.delete("/api/custom-commands/:name", (req, res) => {
     const name = req.params.name;
     const guildId = req.query.guildId;
@@ -531,7 +267,6 @@ export function createApi(client) {
     }
   });
 
-  /** Jail config: list all guilds with jail configured. No async Discord API calls. */
   app.get("/api/jail-config", (req, res) => {
     try {
       const configs = getAllJailConfigs();
@@ -556,7 +291,6 @@ export function createApi(client) {
     }
   });
 
-  /** Remove jail config for a guild (admin only). */
   app.delete("/api/jail-config/:guildId", (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
     const { guildId } = req.params;
@@ -569,7 +303,6 @@ export function createApi(client) {
     }
   });
 
-  /** Get guilds the current user's Discord account is in (intersection with bot's guilds) */
   app.get("/api/user/guilds", (req, res) => {
     const user = getCurrentUser(req);
     if (!user?.discordId) return res.json({ guilds: [] });
@@ -583,7 +316,6 @@ export function createApi(client) {
     res.json({ guilds: userGuilds });
   });
 
-  /** Guild list — admin sees all, non-admin sees nothing */
   app.get("/api/guilds", (req, res) => {
     if (!isAdmin(req)) return res.json({ guilds: [] });
     try {
@@ -594,34 +326,6 @@ export function createApi(client) {
     }
   });
 
-  /** Debug: show raw data dir and file contents for diagnosing persistence issues */
-  app.get("/api/debug/data", (req, res) => {
-    try {
-      const dir = getDataDir();
-      const jailPath = join(dir, "jail-config.json");
-      const ecoPath = join(dir, "economy.json");
-      const jailExists = existsSync(jailPath);
-      const ecoExists = existsSync(ecoPath);
-      let jailRaw = null, ecoKeys = null;
-      if (jailExists) try { jailRaw = JSON.parse(readFileSync(jailPath, "utf8")); } catch (_) { jailRaw = "parse error"; }
-      if (ecoExists) try { ecoKeys = Object.keys(JSON.parse(readFileSync(ecoPath, "utf8"))); } catch (_) { ecoKeys = "parse error"; }
-      res.json({
-        dataDir: dir,
-        railwayEnv: process.env.RAILWAY_ENVIRONMENT || null,
-        dataDirEnv: process.env.DATA_DIR || null,
-        jailConfigExists: jailExists,
-        jailConfig: jailRaw,
-        economyExists: ecoExists,
-        economyUserCount: Array.isArray(ecoKeys) ? ecoKeys.length : ecoKeys,
-        guildsInCache: client.guilds.cache.size,
-        guildIds: client.guilds.cache.map((g) => g.id),
-      });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  /** Economy: leaderboard for a guild. Uses cache only, no Discord API calls. */
   app.get("/api/economy/leaderboard/:guildId", (req, res) => {
     try {
       const lb = getEcoLeaderboard(req.params.guildId, 20);
@@ -636,7 +340,6 @@ export function createApi(client) {
     }
   });
 
-  /** Economy: static info (jobs, shop, quests) */
   app.get("/api/economy/info", (req, res) => {
     try {
       res.json({ jobs: JOBS || [], shop: SHOP_ITEMS || [], quests: QUESTS || [] });
@@ -646,7 +349,6 @@ export function createApi(client) {
     }
   });
 
-  /** Channels list — admin only */
   app.get("/api/channels", async (req, res) => {
     if (!isAdmin(req)) return res.json({ guilds: [] });
     try {
@@ -682,158 +384,6 @@ export function createApi(client) {
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
-  });
-
-  app.post("/api/schedule", async (req, res) => {
-    const body = req.body || {};
-    const { channelId, content, messages: messagesBody, savedMessageNames: savedNamesBody, scheduleType } = body;
-    const hasContent = content != null && String(content).trim() !== "";
-    const messagesArray = Array.isArray(messagesBody) ? messagesBody.filter((m) => m != null && String(m).trim() !== "") : [];
-    const hasMessages = messagesArray.length > 0;
-    const savedNames = Array.isArray(savedNamesBody) ? savedNamesBody.map((n) => String(n).trim()).filter(Boolean) : [];
-    const hasSaved = savedNames.length > 0;
-    if (!channelId || !scheduleType) {
-      return res.status(400).json({
-        error: "channelId and scheduleType required (scheduleType: interval_minutes | daily | weekly)",
-      });
-    }
-    if (!hasContent && !hasMessages && !hasSaved) {
-      return res.status(400).json({
-        error: "Provide messages (plain text), savedMessageNames (saved template names), or content.",
-      });
-    }
-    const user = getCurrentUser(req);
-    const options = {
-      timezone: body.timezone || "UTC",
-      minutes: body.minutes ?? 1,
-      time: body.time || "00:00",
-      day_of_week: body.day_of_week ?? 0,
-    };
-    try {
-      const payload = hasMessages ? undefined : hasSaved ? undefined : { content: String(content).trim() || " " };
-      const messages = hasMessages ? messagesArray.map((m) => String(m).trim() || " ") : undefined;
-      const savedMessageNames = hasSaved ? savedNames : undefined;
-      const { id, label } = addSchedule({
-        channelId: String(channelId),
-        payload,
-        messages,
-        savedMessageNames,
-        scheduleType,
-        options,
-        createdBy: getOwnerId(user) || null,
-      });
-      res.json({ ok: true, id, label });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.get("/api/schedules", async (req, res) => {
-    try {
-      let list = listSchedules();
-      const user = getCurrentUser(req);
-      const admin = isAdmin(req);
-      if (!admin && user) {
-        const ownerId = getOwnerId(user);
-        list = list.filter((s) => s.createdBy === ownerId);
-      } else if (!admin) {
-        list = [];
-      }
-      const enriched = await Promise.all(
-        list.map(async (s) => {
-          let serverName = "";
-          let channelName = "";
-          try {
-            const ch = await client.channels.fetch(s.channelId);
-            if (ch) {
-              channelName = ch.name || "";
-              serverName = ch.guild?.name || "";
-            }
-          } catch (_) {}
-          const full = getScheduleById(s.id);
-          const nextRunAt = full ? getNextRun(full) : null;
-          return { ...s, serverName, channelName, nextRunAt };
-        })
-      );
-      res.json({ schedules: enriched });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  app.delete("/api/schedules/:id", (req, res) => {
-    const id = req.params.id;
-    const schedule = getScheduleById(id);
-    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
-    const user = getCurrentUser(req);
-    const admin = isAdmin(req);
-    if (!admin && user && schedule.createdBy !== getOwnerId(user)) {
-      return res.status(403).json({ error: "You can only delete your own schedules" });
-    }
-    const removed = removeSchedule(id);
-    if (!removed) return res.status(404).json({ error: "Schedule not found" });
-    res.json({ ok: true });
-  });
-
-  function canEditSchedule(req, schedule) {
-    if (isAdmin(req)) return true;
-    const user = getCurrentUser(req);
-    return user && schedule.createdBy === getOwnerId(user);
-  }
-
-  app.patch("/api/schedules/:id", (req, res) => {
-    const id = req.params.id;
-    const schedule = getScheduleById(id);
-    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
-    if (!canEditSchedule(req, schedule)) {
-      return res.status(403).json({ error: "You can only edit your own schedules" });
-    }
-    const body = req.body || {};
-    if (typeof body.paused === "boolean") {
-      const ok = setSchedulePaused(id, body.paused);
-      if (!ok) return res.status(404).json({ error: "Schedule not found" });
-      return res.json({ ok: true, paused: body.paused });
-    }
-    const updates = {};
-    if (body.content != null) updates.content = body.content;
-    if (body.messages != null) updates.messages = Array.isArray(body.messages) ? body.messages : [body.content];
-    if (body.savedMessageNames != null) updates.savedMessageNames = Array.isArray(body.savedMessageNames) ? body.savedMessageNames : [];
-    if (body.scheduleType != null) updates.scheduleType = body.scheduleType;
-    if (body.timezone != null) updates.timezone = body.timezone;
-    if (body.minutes != null) updates.minutes = body.minutes;
-    if (body.time != null) updates.time = body.time;
-    if (body.day_of_week != null) updates.day_of_week = body.day_of_week;
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "No updates provided (paused, content, messages, scheduleType, timezone, minutes, time, day_of_week)" });
-    }
-    const result = updateSchedule(id, updates);
-    if (!result) return res.status(404).json({ error: "Schedule not found" });
-    res.json({ ok: true, id: result.id, label: result.label });
-  });
-
-  /** Get one schedule by id (for edit form). Owner or admin. */
-  app.get("/api/schedules/:id", (req, res) => {
-    const id = req.params.id;
-    const schedule = getScheduleById(id);
-    if (!schedule) return res.status(404).json({ error: "Schedule not found" });
-    if (!canEditSchedule(req, schedule)) {
-      return res.status(403).json({ error: "You can only view your own schedules" });
-    }
-    const messages = schedule.messages?.length ? schedule.messages : [schedule.payload?.content ?? ""];
-    res.json({
-      id: schedule.id,
-      channelId: schedule.channelId,
-      content: messages[0] ?? "",
-      messages,
-      savedMessageNames: schedule.savedMessageNames || [],
-      scheduleType: schedule.scheduleType,
-      timezone: schedule.options?.timezone || "UTC",
-      minutes: schedule.options?.minutes ?? 5,
-      time: schedule.options?.time || "00:00",
-      day_of_week: schedule.options?.day_of_week ?? 0,
-      paused: !!schedule.paused,
-      label: schedule.label,
-    });
   });
 
   return app;
