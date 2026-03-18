@@ -252,6 +252,28 @@ client.on("messageCreate", async (message) => {
   const commandName = (firstSpace === -1 ? afterPrefix : afterPrefix.slice(0, firstSpace)).toLowerCase().replace(/\s/g, "");
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
 
+  // !help command
+  if (commandName === "help") {
+    await message.channel.send({ content: `**📖 All Commands**
+
+**General**
+\`!help\` — Show this message
+
+**Economy** (\`!economy\` for full list)
+\`!balance\` — Check balance · \`!daily\` — Daily reward
+\`!work\` — Earn coins · \`!jobs\` / \`!apply\` — Jobs
+\`!quest\` — Quests · \`!shop\` / \`!buy\` — Shop
+\`!coinflip\` · \`!slots\` · \`!blackjack\` — Gambling
+\`!rob @user\` · \`!give @user\` · \`!leaderboard\`
+\`!deposit\` / \`!withdraw\` · \`!inventory\` · \`!stats\`
+
+**Jail** (requires allowed role)
+\`!jail @user\` — Jail a user · \`!unjail @user\` — Release
+
+**Custom commands** — Set up via the web panel` }).catch(() => {});
+    return;
+  }
+
   // Economy commands
   if (ECONOMY_COMMAND_NAMES.has(commandName)) {
     try {
