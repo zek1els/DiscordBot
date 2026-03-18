@@ -6,9 +6,17 @@ import {
   VoiceConnectionStatus,
   entersState,
   NoSubscriberBehavior,
+  StreamType,
 } from "@discordjs/voice";
 import play from "play-dl";
 import ytdl from "@distube/ytdl-core";
+import ffmpegPath from "ffmpeg-static";
+import { createRequire } from "module";
+
+// Tell @discordjs/voice (via prism-media) where ffmpeg lives
+const require = createRequire(import.meta.url);
+const prism = require("prism-media");
+process.env.FFMPEG_PATH = ffmpegPath;
 
 /** @type {Map<string, MusicQueue>} */
 const queues = new Map();
@@ -163,7 +171,16 @@ export class MusicQueue {
         quality: "highestaudio",
         highWaterMark: 1 << 25,
       });
+      // Handle stream errors before they become unhandled
+      stream.on("error", (err) => {
+        console.error("ytdl stream error:", err.message);
+        this.textChannel.send({ embeds: [{ color: 0xed4245, description: `❌ Stream error for **${song.title}**: ${err.message}` }] }).catch(() => {});
+        this.current = null;
+        this.playing = false;
+        this.processQueue();
+      });
       const resource = createAudioResource(stream, {
+        inputType: StreamType.Arbitrary,
         inlineVolume: true,
       });
       resource.volume?.setVolume(this.volume / 100);
