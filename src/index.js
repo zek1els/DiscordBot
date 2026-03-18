@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, REST, Routes } from "discord.js";
+import { Client, GatewayIntentBits, Partials, REST, Routes } from "discord.js";
 import { config } from "dotenv";
 import { createApi } from "./api.js";
 import { initScheduler } from "./scheduler.js";
@@ -9,7 +9,7 @@ import { getDataDir } from "./dataDir.js";
 import { slashCommands } from "./commands.js";
 import { handleMessage } from "./handlers/messageHandler.js";
 import { handleInteraction } from "./handlers/interactionHandler.js";
-import { handleMessageDelete } from "./handlers/deleteLogHandler.js";
+import { handleMessageDelete, handleMessageUpdate } from "./handlers/deleteLogHandler.js";
 
 config();
 
@@ -25,6 +25,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
   ],
+  partials: [Partials.Message, Partials.Channel],
 });
 
 client.once("clientReady", async () => {
@@ -81,6 +82,7 @@ client.on("guildMemberAdd", async (member) => {
 
 client.on("messageCreate", (message) => handleMessage(message));
 client.on("messageDelete", (message) => handleMessageDelete(message, client));
+client.on("messageUpdate", (oldMessage, newMessage) => handleMessageUpdate(oldMessage, newMessage, client));
 client.on("interactionCreate", (interaction) => handleInteraction(interaction));
 
 const token = process.env.DISCORD_TOKEN;
