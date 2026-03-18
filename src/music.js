@@ -8,6 +8,7 @@ import {
   NoSubscriberBehavior,
 } from "@discordjs/voice";
 import play from "play-dl";
+import ytdl from "@distube/ytdl-core";
 
 /** @type {Map<string, MusicQueue>} */
 const queues = new Map();
@@ -157,9 +158,12 @@ export class MusicQueue {
     const song = this.songs.shift();
     this.current = song;
     try {
-      const stream = await play.stream(song.url);
-      const resource = createAudioResource(stream.stream, {
-        inputType: stream.type,
+      const stream = ytdl(song.url, {
+        filter: "audioonly",
+        quality: "highestaudio",
+        highWaterMark: 1 << 25,
+      });
+      const resource = createAudioResource(stream, {
         inlineVolume: true,
       });
       resource.volume?.setVolume(this.volume / 100);
@@ -229,12 +233,14 @@ export async function resolveSong(query) {
 
   // Direct YouTube URL
   if (urlType === "yt_video") {
-    const info = await play.video_info(query);
+    const info = await ytdl.getBasicInfo(query);
+    const d = info.videoDetails;
+    const secs = parseInt(d.lengthSeconds, 10) || 0;
     return {
-      url: info.video_details.url,
-      title: info.video_details.title || "Unknown",
-      duration: info.video_details.durationRaw || "?",
-      thumbnail: info.video_details.thumbnails?.[0]?.url,
+      url: d.video_url,
+      title: d.title || "Unknown",
+      duration: formatDuration(secs),
+      thumbnail: d.thumbnails?.[d.thumbnails.length - 1]?.url,
     };
   }
 
