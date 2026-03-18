@@ -2,10 +2,61 @@ import { list as listCustomCommands, get as getCustomCommand } from "../customCo
 import { handleEconomyCommand, ECONOMY_COMMAND_NAMES } from "../economyCommands.js";
 import { getConfig as getJailConfig, saveJailedRoles, popJailedRoles } from "../jailConfig.js";
 import { awardMessageXp } from "../levels.js";
+import { addWarning, getWarnings } from "../warnings.js";
 import { log as auditLog } from "../auditLog.js";
 
 // Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
 const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
+
+// --- Anti-spam ---
+const SPAM_THRESHOLD = 4;
+const SPAM_WINDOW_MS = 30_000;
+const JAIL_WARNING_THRESHOLD = 10;
+const spamTracker = new Map();
+
+function trackAndDetectSpam(guildId, channelId, userId, content, messageObj) {
+  const key = `${guildId}:${channelId}:${userId}`;
+  const now = Date.now();
+
+  if (!spamTracker.has(key)) spamTracker.set(key, []);
+  const history = spamTracker.get(key);
+
+  history.push({ content: content.toLowerCase(), time: now, message: messageObj });
+
+  // Prune old entries outside the window
+  while (history.length > 0 && now - history[0].time > SPAM_WINDOW_MS) {
+    history.shift();
+  }
+
+  const matching = history.filter((h) => h.content === content.toLowerCase());
+  if (matching.length >= SPAM_THRESHOLD) {
+    // Keep the oldest matching message, return the rest for deletion
+    const toDelete = matching.slice(1).map((h) => h.message).filter(Boolean);
+    // Reset tracker so we don't re-trigger immediately
+    spamTracker.set(key, []);
+    return toDelete;
+  }
+
+  return null;
+}
+
+async function autoJail(message, guildId) {
+  const cfg = getJailConfig(guildId);
+  if (!cfg?.criminalRoleId) return;
+  try {
+    const member = await message.guild.members.fetch(message.author.id);
+    const currentRoleIds = member.roles.cache
+      .filter((r) => r.id !== message.guild.id && r.id !== cfg.criminalRoleId)
+      .map((r) => r.id);
+    saveJailedRoles(guildId, message.author.id, currentRoleIds);
+    const rolesToRemove = currentRoleIds.filter((id) => id !== cfg.criminalRoleId);
+    if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
+    await member.roles.add(cfg.criminalRoleId);
+    auditLog(guildId, "jail", { userId: message.author.id, moderatorId: "auto-spam", reason: "Reached 10 warnings" });
+  } catch (e) {
+    console.error("Auto-jail failed:", e.message || e);
+  }
+}
 
 export async function handleMessage(message) {
   if (message.author?.bot) return;
@@ -14,9 +65,41 @@ export async function handleMessage(message) {
   const content = raw.trim();
   if (!content) return;
 
-  const guildIdForXp = message.guildId ?? message.guild?.id;
-  if (guildIdForXp) {
-    const result = awardMessageXp(guildIdForXp, message.author.id);
+  const guildId = message.guildId ?? message.guild?.id;
+
+  // Anti-spam check (only in guilds)
+  if (guildId && message.channelId) {
+    const spamMessages = trackAndDetectSpam(guildId, message.channelId, message.author.id, content, message);
+    if (spamMessages && spamMessages.length > 0) {
+      try {
+        const deletable = spamMessages.filter((m) => m.deletable);
+        if (deletable.length > 0) {
+          await message.channel.bulkDelete(deletable).catch(async () => {
+            for (const m of deletable) await m.delete().catch(() => {});
+          });
+        }
+      } catch (e) { console.warn("Spam delete failed:", e.message); }
+
+      const { warning, total } = addWarning(guildId, message.author.id, "Auto-spam: repeated messages", "kova");
+      auditLog(guildId, "warn", { userId: message.author.id, moderatorId: "kova", reason: "Auto-spam: repeated messages" });
+
+      const warnEmbed = {
+        color: 0xfee75c,
+        description: `⚠️ <@${message.author.id}> — stop spamming. **Warning ${total}/10**`,
+      };
+      if (total >= JAIL_WARNING_THRESHOLD) {
+        await autoJail(message, guildId);
+        warnEmbed.description += `\n🔒 You have been **jailed** for reaching ${JAIL_WARNING_THRESHOLD} warnings.`;
+        warnEmbed.color = 0xed4245;
+      }
+      message.channel.send({ embeds: [warnEmbed] }).catch(() => {});
+      return;
+    }
+  }
+
+  // XP award
+  if (guildId) {
+    const result = awardMessageXp(guildId, message.author.id);
     if (result?.leveledUp) {
       message.channel.send({
         embeds: [{
@@ -24,7 +107,7 @@ export async function handleMessage(message) {
           description: `🎉 <@${message.author.id}> reached **Level ${result.newLevel}**!`,
         }],
       }).catch(() => {});
-      auditLog(guildIdForXp, "level_up", { userId: message.author.id, level: result.newLevel });
+      auditLog(guildId, "level_up", { userId: message.author.id, level: result.newLevel });
     }
   }
 
