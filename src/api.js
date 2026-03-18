@@ -147,10 +147,8 @@ export function createApi(client) {
     }
     if (needsVerification) {
       const sent = await sendVerificationCode(String(email).trim());
-      if (!sent) {
-        return res.status(500).json({ error: "Account created but failed to send verification email. Check SMTP settings." });
-      }
-      return res.json({ ok: true, needsVerification: true, email: String(email).trim().toLowerCase() });
+      // Even if email fails, show verify page so user can resend
+      return res.json({ ok: true, needsVerification: true, email: String(email).trim().toLowerCase(), emailFailed: !sent });
     }
     const user = validateUser(String(email).trim(), String(password));
     if (!user) return res.status(500).json({ error: "Account created but login failed" });

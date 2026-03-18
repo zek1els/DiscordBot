@@ -45,6 +45,7 @@ export async function sendVerificationCode(email) {
   pendingCodes.set(email.toLowerCase(), { code, expiresAt: Date.now() + CODE_EXPIRY_MS });
 
   try {
+    console.log(`Attempting to send verification email to ${email} via ${SMTP_HOST}:${SMTP_PORT} (user: ${SMTP_USER})`);
     await transporter.sendMail({
       from: SMTP_FROM,
       to: email,
@@ -62,7 +63,7 @@ export async function sendVerificationCode(email) {
     console.log(`Verification code sent to ${email}`);
     return true;
   } catch (e) {
-    console.error(`Failed to send verification email to ${email}:`, e.message);
+    console.error(`Failed to send verification email to ${email}:`, e.message, e.code || "", e.response || "");
     return false;
   }
 }

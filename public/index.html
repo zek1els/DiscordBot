@@ -647,6 +647,11 @@
       const data = await r.json().catch(() => ({}));
       if (r.ok && data.needsVerification) {
         showVerifyPage(data.email || email);
+        if (data.emailFailed) {
+          const vs = document.getElementById("verifyStatus");
+          vs.textContent = "Could not send email. Click Resend to try again.";
+          vs.className = "error";
+        }
         return;
       }
       if (r.ok) {
