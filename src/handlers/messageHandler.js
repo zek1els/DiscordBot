@@ -14,27 +14,24 @@ const SPAM_WINDOW_MS = 30_000;
 const JAIL_WARNING_THRESHOLD = 10;
 const spamTracker = new Map();
 
-function trackAndDetectSpam(guildId, channelId, userId, content, messageObj) {
+function trackAndDetectSpam(guildId, channelId, userId, content, messageId) {
   const key = `${guildId}:${channelId}:${userId}`;
   const now = Date.now();
 
   if (!spamTracker.has(key)) spamTracker.set(key, []);
   const history = spamTracker.get(key);
 
-  history.push({ content: content.toLowerCase(), time: now, message: messageObj });
+  history.push({ content: content.toLowerCase(), time: now, id: messageId });
 
-  // Prune old entries outside the window
   while (history.length > 0 && now - history[0].time > SPAM_WINDOW_MS) {
     history.shift();
   }
 
   const matching = history.filter((h) => h.content === content.toLowerCase());
   if (matching.length >= SPAM_THRESHOLD) {
-    // Keep the oldest matching message, return the rest for deletion
-    const toDelete = matching.slice(1).map((h) => h.message).filter(Boolean);
-    // Reset tracker so we don't re-trigger immediately
+    const idsToDelete = matching.slice(1).map((h) => h.id).filter(Boolean);
     spamTracker.set(key, []);
-    return toDelete;
+    return idsToDelete;
   }
 
   return null;
@@ -69,16 +66,19 @@ export async function handleMessage(message) {
 
   // Anti-spam check (only in guilds)
   if (guildId && message.channelId) {
-    const spamMessages = trackAndDetectSpam(guildId, message.channelId, message.author.id, content, message);
-    if (spamMessages && spamMessages.length > 0) {
+    const spamIds = trackAndDetectSpam(guildId, message.channelId, message.author.id, content, message.id);
+    if (spamIds && spamIds.length > 0) {
       try {
-        const deletable = spamMessages.filter((m) => m.deletable);
-        if (deletable.length > 0) {
-          await message.channel.bulkDelete(deletable).catch(async () => {
-            for (const m of deletable) await m.delete().catch(() => {});
-          });
+        await message.channel.bulkDelete(spamIds);
+      } catch (bulkErr) {
+        console.warn("bulkDelete failed, trying individual deletes:", bulkErr.message);
+        for (const id of spamIds) {
+          try {
+            const msg = await message.channel.messages.fetch(id).catch(() => null);
+            if (msg) await msg.delete();
+          } catch (_) {}
         }
-      } catch (e) { console.warn("Spam delete failed:", e.message); }
+      }
 
       const { warning, total } = addWarning(guildId, message.author.id, "Auto-spam: repeated messages", "kova");
       auditLog(guildId, "warn", { userId: message.author.id, moderatorId: "kova", reason: "Auto-spam: repeated messages" });
