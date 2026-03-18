@@ -73,21 +73,6 @@ export function validate(email, password) {
 }
 
 /**
- * Mark a user as email-verified by email address.
- * @param {string} email
- * @returns {boolean}
- */
-export function markVerified(email) {
-  const normalized = String(email).trim().toLowerCase();
-  const users = loadAll();
-  const i = users.findIndex((u) => u.email.toLowerCase() === normalized);
-  if (i === -1) return false;
-  users[i].verified = true;
-  saveAll(users);
-  return true;
-}
-
-/**
  * Check if a user exists by email (for re-sending verification codes).
  * @param {string} email
  * @returns {{ id: string, email: string, verified: boolean } | null}

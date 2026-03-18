@@ -13,15 +13,6 @@ function xpForLevel(level) {
   return Math.floor(BASE_XP * Math.pow(level, XP_MULTIPLIER));
 }
 
-function levelFromXp(xp) {
-  let level = 0;
-  while (xp >= xpForLevel(level + 1)) {
-    xp -= xpForLevel(level + 1);
-    level++;
-  }
-  return level;
-}
-
 function xpProgressInLevel(xp) {
   let level = 0;
   while (xp >= xpForLevel(level + 1)) {
@@ -29,6 +20,10 @@ function xpProgressInLevel(xp) {
     level++;
   }
   return { level, currentXp: xp, neededXp: xpForLevel(level + 1) };
+}
+
+function levelFromXp(xp) {
+  return xpProgressInLevel(xp).level;
 }
 
 function getUser(guildId, userId) {

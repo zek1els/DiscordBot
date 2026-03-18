@@ -1,7 +1,7 @@
 {
-  "name": "discord-custom-message-bot",
+  "name": "kova",
   "version": "1.0.0",
-  "description": "Discord bot to send customizable messages to a channel",
+  "description": "Kova — an all-in-one Discord bot with economy, moderation, scheduled messages, and a web admin panel",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

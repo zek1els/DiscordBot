@@ -359,7 +359,7 @@ export function createApi(client) {
       for (const [id, guild] of client.guilds.cache) {
         const channels = [];
         for (const [cId, ch] of guild.channels.cache) {
-          if (ch.isTextBased && ch.viewable) {
+          if (ch.isTextBased() && ch.viewable) {
             channels.push({ id: cId, name: ch.name });
           }
         }
@@ -447,16 +447,16 @@ export function createApi(client) {
     try {
       const log = getAuditLog(req.params.guildId, limit);
       const enriched = log.map((entry) => {
-        const enriched = { ...entry };
+        const out = { ...entry };
         if (entry.userId) {
           const u = client.users.cache.get(entry.userId);
-          enriched.username = u?.displayName || u?.username || entry.userId;
+          out.username = u?.displayName || u?.username || entry.userId;
         }
         if (entry.moderatorId) {
           const m = client.users.cache.get(entry.moderatorId);
-          enriched.moderatorName = m?.displayName || m?.username || entry.moderatorId;
+          out.moderatorName = m?.displayName || m?.username || entry.moderatorId;
         }
-        return enriched;
+        return out;
       });
       res.json({ log: enriched });
     } catch (e) {

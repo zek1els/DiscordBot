@@ -37,8 +37,6 @@
     div.textContent = s;
     return div.innerHTML;
   }
-  const escapeHtml = esc;
-
   const fetchOpts = (opts = {}) => ({ ...opts, credentials: "include" });
   function headers() { return { "Content-Type": "application/json" }; }
 

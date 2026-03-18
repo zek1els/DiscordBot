@@ -153,7 +153,6 @@ export async function handleMessage(message) {
 
   // Built-in: !jail @user and !unjail @user
   if (commandName === "jail" || commandName === "unjail") {
-    const guildId = message.guildId ?? message.guild?.id;
     if (!guildId) return;
     const cfg = getJailConfig(guildId);
     if (!cfg) return message.channel.send({ content: "Jail not configured. An admin must run `/jail-setup` first." }).catch(() => {});

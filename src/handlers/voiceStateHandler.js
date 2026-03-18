@@ -10,7 +10,7 @@ export function handleVoiceStateUpdate(oldState, newState) {
   if (newState.member?.user?.bot) return;
 
   const key = `${guildId}:${userId}`;
-  const wasInChannel = !!oldState.channelId && !oldState.member?.user?.bot;
+  const wasInChannel = !!oldState.channelId;
   const isInChannel = !!newState.channelId;
 
   if (!wasInChannel && isInChannel) {
