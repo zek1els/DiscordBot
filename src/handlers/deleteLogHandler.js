@@ -11,7 +11,8 @@ export async function handleMessageDelete(message, client) {
     try {
       const ch = await client.channels.fetch(message.channelId).catch(() => null);
       channelName = ch?.name ?? "unknown";
-    } catch (_) {
+    } catch (e) {
+      console.warn("Failed to fetch channel for delete log:", e.message);
       channelName = "unknown";
     }
   }

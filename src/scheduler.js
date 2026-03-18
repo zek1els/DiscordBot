@@ -1,39 +1,16 @@
 import cron from "node-cron";
 import { CronExpressionParser, CronDate } from "cron-parser";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 import { get as getSavedMessage } from "./savedMessages.js";
 
-function getStorePath() {
-  return join(getDataDir(), "schedules.json");
-}
+const store = createStore("schedules.json", () => []);
 
 /** @type {Map<string, { stop: () => void }>} */
 const jobs = new Map();
 let client = null;
 
-function loadSchedules() {
-  try {
-    const path = getStorePath();
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf8"));
-    }
-  } catch (e) {
-    console.error("Failed to load schedules:", e);
-  }
-  return [];
-}
-
-function saveSchedules(schedules) {
-  try {
-    const dir = getDataDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(getStorePath(), JSON.stringify(schedules, null, 2), "utf8");
-  } catch (e) {
-    console.error("Failed to save schedules:", e);
-  }
-}
+const loadSchedules = () => store.load();
+const saveSchedules = (data) => store.save(data);
 
 function generateId() {
   return `s_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;

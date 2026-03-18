@@ -1,32 +1,12 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
-function getStorePath() {
-  return join(getDataDir(), "users.json");
-}
+const store = createStore("users.json", () => []);
+const loadAll = () => store.load();
+const saveAll = (data) => store.save(data);
 
 const SALT_LEN = 16;
 const KEY_LEN = 64;
-
-function loadAll() {
-  try {
-    const path = getStorePath();
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf8"));
-    }
-  } catch (e) {
-    console.error("Failed to load users:", e);
-  }
-  return [];
-}
-
-function saveAll(users) {
-  const dir = getDataDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getStorePath(), JSON.stringify(users, null, 2), "utf8");
-}
 
 function hashPassword(password, salt) {
   return scryptSync(password, salt, KEY_LEN).toString("base64");

@@ -1,26 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
-function getStorePath() {
-  return join(getDataDir(), "economy.json");
-}
-
-function loadAll() {
-  try {
-    const p = getStorePath();
-    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf8"));
-  } catch (e) {
-    console.error("Failed to load economy data:", e);
-  }
-  return {};
-}
-
-function saveAll(data) {
-  const dir = getDataDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getStorePath(), JSON.stringify(data, null, 2), "utf8");
-}
+const store = createStore("economy.json");
 
 function key(guildId, userId) {
   return `${guildId}_${userId}`;
@@ -39,21 +19,21 @@ const DEFAULT_USER = () => ({
 });
 
 export function getUser(guildId, userId) {
-  const all = loadAll();
+  const all = store.load();
   const k = key(guildId, userId);
   if (!all[k]) {
     all[k] = DEFAULT_USER();
-    saveAll(all);
+    store.save(all);
   }
   return { ...all[k] };
 }
 
 export function updateUser(guildId, userId, updater) {
-  const all = loadAll();
+  const all = store.load();
   const k = key(guildId, userId);
   if (!all[k]) all[k] = DEFAULT_USER();
   updater(all[k]);
-  saveAll(all);
+  store.save(all);
   return { ...all[k] };
 }
 
@@ -92,7 +72,7 @@ export function getCooldownRemaining(guildId, userId, action) {
 }
 
 export function getLeaderboard(guildId, limit = 10) {
-  const all = loadAll();
+  const all = store.load();
   const prefix = `${guildId}_`;
   return Object.entries(all)
     .filter(([k]) => k.startsWith(prefix))

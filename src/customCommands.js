@@ -1,73 +1,31 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
 const PREFIX = "!";
-
-function getStorePath() {
-  return join(getDataDir(), "custom-commands.json");
-}
-
-function loadAll() {
-  try {
-    const path = getStorePath();
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf8"));
-    }
-  } catch (e) {
-    console.error("Failed to load custom commands:", e);
-  }
-  return {};
-}
-
-function saveAll(data) {
-  const dir = getDataDir();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(getStorePath(), JSON.stringify(data, null, 2), "utf8");
-}
+const store = createStore("custom-commands.json");
 
 function normalizeName(name) {
   return String(name).trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 function getGuildCommands(guildId) {
-  const all = loadAll();
-  return all[guildId] || [];
+  return store.load()[guildId] || [];
 }
 
 function setGuildCommands(guildId, commands) {
-  const all = loadAll();
+  const all = store.load();
   all[guildId] = commands;
-  saveAll(all);
+  store.save(all);
 }
 
-/**
- * List all custom commands for a guild.
- * @param {string} guildId
- * @returns {{ name: string, template: string }[]}
- */
 export function list(guildId) {
   return getGuildCommands(guildId);
 }
 
-/**
- * Get one custom command by name for a guild.
- * @param {string} name
- * @param {string} guildId
- * @returns {{ name: string, template: string } | null}
- */
 export function get(name, guildId) {
   const key = normalizeName(name);
   return getGuildCommands(guildId).find((c) => normalizeName(c.name) === key) || null;
 }
 
-/**
- * Add or update a custom command for a guild.
- * @param {string} name
- * @param {string} template
- * @param {string} guildId
- * @returns {string} Normalized name
- */
 export function add(name, template, guildId) {
   const key = normalizeName(name);
   if (!key) throw new Error("Command name cannot be empty");
@@ -81,12 +39,6 @@ export function add(name, template, guildId) {
   return key;
 }
 
-/**
- * Remove a custom command by name for a guild.
- * @param {string} name
- * @param {string} guildId
- * @returns {boolean}
- */
 export function remove(name, guildId) {
   const key = normalizeName(name);
   const before = getGuildCommands(guildId);
@@ -96,23 +48,19 @@ export function remove(name, guildId) {
   return true;
 }
 
-/** Prefix users type (e.g. !hug). */
 export function getPrefix() {
   return PREFIX;
 }
 
-/** Migrate old flat array format to per-guild format. Call once at startup. */
 export function migrateIfNeeded() {
-  const data = loadAll();
+  const data = store.load();
   if (Array.isArray(data) && data.length > 0) {
-    const migrated = { _migrated: data };
-    saveAll(migrated);
-    console.log(`Migrated ${data.length} custom commands from flat array to per-guild format (stored under _migrated — assign to a guild via the panel).`);
+    store.save({ _migrated: data });
+    console.log(`Migrated ${data.length} custom commands from flat array to per-guild format (stored under _migrated).`);
   }
 }
 
-/** Get total command count across all guilds (for startup log). */
 export function totalCount() {
-  const all = loadAll();
+  const all = store.load();
   return Object.values(all).reduce((sum, cmds) => sum + (Array.isArray(cmds) ? cmds.length : 0), 0);
 }

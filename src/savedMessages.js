@@ -1,52 +1,24 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { join } from "path";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
-function getStorePath() {
-  return join(getDataDir(), "saved-messages.json");
-}
-
-function loadAll() {
-  try {
-    const path = getStorePath();
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, "utf8"));
-    }
-  } catch (e) {
-    console.error("Failed to load saved messages:", e);
-  }
-  return {};
-}
-
-function saveAll(data) {
-  try {
-    const dir = getDataDir();
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(getStorePath(), JSON.stringify(data, null, 2), "utf8");
-  } catch (e) {
-    console.error("Failed to save messages:", e);
-  }
-}
+const store = createStore("saved-messages.json");
 
 function getUserBucket(data, ownerId) {
   return data[ownerId] || {};
 }
 
-/** Save a named message (template) for a specific owner. Overwrites if name exists. */
 export function save(name, payload, ownerId = "_global") {
   const key = String(name).trim().toLowerCase();
   if (!key) throw new Error("Message name cannot be empty");
-  const data = loadAll();
+  const data = store.load();
   if (!data[ownerId]) data[ownerId] = {};
   data[ownerId][key] = { name: key, payload };
-  saveAll(data);
+  store.save(data);
   return key;
 }
 
-/** Get payload for a saved message name. Checks owner first, then _global fallback. */
 export function get(name, ownerId = "_global") {
   const key = String(name).trim().toLowerCase();
-  const data = loadAll();
+  const data = store.load();
   const userEntry = getUserBucket(data, ownerId)[key];
   if (userEntry) return userEntry.payload;
   if (ownerId !== "_global") {
@@ -56,9 +28,8 @@ export function get(name, ownerId = "_global") {
   return null;
 }
 
-/** List saved message names for an owner (with short previews). */
 export function list(ownerId = "_global") {
-  const data = loadAll();
+  const data = store.load();
   const bucket = getUserBucket(data, ownerId);
   return Object.entries(bucket).map(([key, { payload }]) => {
     const preview =
@@ -70,27 +41,24 @@ export function list(ownerId = "_global") {
   });
 }
 
-/** Remove a saved message by name for a specific owner. */
 export function remove(name, ownerId = "_global") {
   const key = String(name).trim().toLowerCase();
-  const data = loadAll();
+  const data = store.load();
   const bucket = data[ownerId];
   if (!bucket || !(key in bucket)) return false;
   delete bucket[key];
   if (Object.keys(bucket).length === 0) delete data[ownerId];
-  saveAll(data);
+  store.save(data);
   return true;
 }
 
-/** Migrate old flat format { name: { name, payload } } to new format { _global: { name: { name, payload } } } */
 export function migrateIfNeeded() {
-  const data = loadAll();
+  const data = store.load();
   const keys = Object.keys(data);
   if (keys.length === 0) return;
   const firstVal = data[keys[0]];
   if (firstVal && firstVal.payload !== undefined && firstVal.name !== undefined) {
-    const migrated = { _global: { ...data } };
-    saveAll(migrated);
+    store.save({ _global: { ...data } });
     console.log(`Migrated ${keys.length} saved messages to new per-user format.`);
   }
 }
