@@ -60,11 +60,11 @@
     <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLandingFromLogin" class="muted" style="font-size: 0.875rem; text-decoration: none;">&#8592; Back to home</a></p>
     <h1>Welcome back</h1>
     <p class="muted" style="margin-bottom: 1rem;">Log in with your email or Discord (if you've already linked it).</p>
-    <form id="loginForm" class="section" style="margin-bottom: 1rem;" autocomplete="on">
+    <form id="loginForm" class="section" style="margin-bottom: 1rem;" autocomplete="on" action="/api/auth/login" method="POST">
       <label for="loginEmail">Email</label>
-      <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email" required>
+      <input type="email" id="loginEmail" name="email" placeholder="you@example.com" autocomplete="email" required>
       <label for="loginPassword">Password</label>
-      <input type="password" id="loginPassword" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password" required>
+      <input type="password" id="loginPassword" name="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="current-password" required>
       <button type="submit" id="loginBtn" style="width: 100%;">Log in</button>
       <p id="loginStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
     </form>
@@ -82,11 +82,11 @@
     <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLandingFromRegister" class="muted" style="font-size: 0.875rem; text-decoration: none;">&#8592; Back to home</a></p>
     <h1>Create an account</h1>
     <p class="muted" style="margin-bottom: 1rem;">You can link your Discord account after signing up.</p>
-    <form id="registerForm" class="section" style="margin-bottom: 1rem;" autocomplete="on">
+    <form id="registerForm" class="section" style="margin-bottom: 1rem;" autocomplete="on" action="/api/auth/register" method="POST">
       <label for="registerEmail">Email</label>
-      <input type="email" id="registerEmail" placeholder="you@example.com" autocomplete="email" required>
+      <input type="email" id="registerEmail" name="email" placeholder="you@example.com" autocomplete="email" required>
       <label for="registerPassword">Password (min 6 characters)</label>
-      <input type="password" id="registerPassword" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required minlength="6">
+      <input type="password" id="registerPassword" name="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required minlength="6">
       <button type="submit" id="registerBtn" style="width: 100%;">Create account</button>
       <p id="registerStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
     </form>

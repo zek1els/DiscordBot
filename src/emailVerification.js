@@ -2,7 +2,7 @@ import { randomInt } from "crypto";
 
 // Resend (HTTP API) — preferred, works on Railway/cloud platforms
 const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim();
-const RESEND_FROM = process.env.RESEND_FROM?.trim() || "onboarding@resend.dev";
+const RESEND_FROM = process.env.RESEND_FROM?.trim() || "kovabot@kova.lol";
 
 // Legacy SMTP fallback (kept for backwards compat)
 const SMTP_HOST = process.env.SMTP_HOST?.trim();
