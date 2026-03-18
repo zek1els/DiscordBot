@@ -70,12 +70,16 @@
       document.getElementById("botServersSection").style.display = "block";
       document.getElementById("navLogs").style.display = "";
       document.getElementById("navUsers").style.display = "";
+      document.getElementById("navWarnings").style.display = "";
+      document.getElementById("navAuditLog").style.display = "";
       loadBotServers();
     } else {
       document.getElementById("adminBadge").style.display = "none";
       document.getElementById("botServersSection").style.display = "none";
       document.getElementById("navLogs").style.display = "none";
       document.getElementById("navUsers").style.display = "none";
+      document.getElementById("navWarnings").style.display = "none";
+      document.getElementById("navAuditLog").style.display = "none";
     }
     const discordWrap = document.getElementById("discordLinkWrap");
     const linkText = document.getElementById("discordLinkText");
@@ -535,7 +539,10 @@
     if (page === "commands") loadCustomCommandsPage();
     if (page === "economy") loadEconomyPage();
     if (page === "jail") loadJailConfigPage();
+    if (page === "levels") loadLevelsPage();
     if (page === "logs" && window._isAdmin) loadDeletedLogConfig();
+    if (page === "warnings" && window._isAdmin) loadWarningsPage();
+    if (page === "auditlog" && window._isAdmin) loadAuditLogPage();
     if (page === "users" && window._isAdmin) loadUsersPage();
   });
 
@@ -762,6 +769,158 @@
       console.error("loadUsersPage error:", e);
       listEl.innerHTML = `<li><span class="muted">Failed to load users: ${esc(e.message)}</span></li>`;
     }
+  }
+
+  // --- Levels page ---
+  let _currentLbType = "xp";
+  async function loadLevelsPage() {
+    await populateGuildSelect("levelGuildSelect");
+    const guildSelect = document.getElementById("levelGuildSelect");
+    const loadLb = async () => {
+      const gid = guildSelect.value;
+      const statsBar = document.getElementById("levelStatsBar");
+      const tabsWrap = document.getElementById("levelTabsWrap");
+      const lbList = document.getElementById("levelLeaderboard");
+      if (!gid) {
+        statsBar.style.display = "none";
+        tabsWrap.style.display = "none";
+        return;
+      }
+      statsBar.style.display = "block";
+      tabsWrap.style.display = "block";
+      try {
+        const sr = await fetch(`/api/levels/stats/${gid}`, fetchOpts({ headers: headers() }));
+        if (sr.ok) {
+          const stats = await sr.json();
+          document.getElementById("statTotalMessages").textContent = stats.totalMessages.toLocaleString();
+          document.getElementById("statTotalVc").textContent = stats.totalVcMinutes.toLocaleString();
+          document.getElementById("statTotalUsers").textContent = stats.totalUsers.toLocaleString();
+        }
+      } catch (e) { console.warn("Stats load error:", e); }
+      try {
+        const r = await fetch(`/api/levels/leaderboard/${gid}?type=${_currentLbType}`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { lbList.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
+        const data = await r.json();
+        if (!data.leaderboard || data.leaderboard.length === 0) {
+          lbList.innerHTML = '<li><span class="muted">No data yet. Start chatting!</span></li>';
+          return;
+        }
+        const medals = ["\ud83e\udd47", "\ud83e\udd48", "\ud83e\udd49"];
+        const rankClasses = ["gold", "silver", "bronze"];
+        lbList.innerHTML = "";
+        for (let i = 0; i < data.leaderboard.length; i++) {
+          const e = data.leaderboard[i];
+          const li = document.createElement("li");
+          const prefix = medals[i] || `${i + 1}.`;
+          const cls = rankClasses[i] || "";
+          const value = _currentLbType === "xp" ? `${e.xp.toLocaleString()} XP (Lv ${e.level})`
+            : _currentLbType === "messages" ? `${e.totalMessages.toLocaleString()} messages`
+            : `${e.vcMinutes.toLocaleString()} min`;
+          li.innerHTML = `<span><span class="lb-rank ${cls}">${prefix}</span> <strong>${esc(e.username)}</strong></span> <span style="font-weight: 600; color: var(--accent);">${value}</span>`;
+          lbList.appendChild(li);
+        }
+      } catch (e) {
+        lbList.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`;
+      }
+    };
+    guildSelect.onchange = loadLb;
+    document.querySelectorAll(".level-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".level-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        _currentLbType = tab.dataset.lbType;
+        loadLb();
+      });
+    });
+    loadLb();
+  }
+
+  // --- Warnings page (admin) ---
+  async function loadWarningsPage() {
+    await populateGuildSelect("warningGuildSelect");
+    const guildSelect = document.getElementById("warningGuildSelect");
+    const listEl = document.getElementById("warningsList");
+    const loadWarnings = async () => {
+      const gid = guildSelect.value;
+      if (!gid) { listEl.innerHTML = '<li><span class="muted">Select a server.</span></li>'; return; }
+      listEl.innerHTML = '<li><span class="muted">Loading\u2026</span></li>';
+      try {
+        const r = await fetch(`/api/warnings/${gid}`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
+        const data = await r.json();
+        const warnings = data.warnings || [];
+        if (warnings.length === 0) {
+          listEl.innerHTML = '<li><span class="muted">No warnings in this server.</span></li>';
+          return;
+        }
+        listEl.innerHTML = "";
+        for (const w of warnings) {
+          const li = document.createElement("li");
+          li.style.cssText = "flex-direction: column; align-items: flex-start;";
+          const date = new Date(w.timestamp).toLocaleString();
+          li.innerHTML = `<div><strong>${esc(w.username)}</strong> <span class="muted" style="font-size: 0.78rem;">warned by ${esc(w.moderatorName)}</span></div>
+            <div style="margin-top: 0.25rem;">${esc(w.reason)}</div>
+            <div class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;">${esc(date)} &middot; ID: ${esc(w.id)}</div>`;
+          listEl.appendChild(li);
+        }
+      } catch (e) {
+        listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`;
+      }
+    };
+    guildSelect.onchange = loadWarnings;
+    loadWarnings();
+  }
+
+  // --- Audit Log page (admin) ---
+  async function loadAuditLogPage() {
+    await populateGuildSelect("auditGuildSelect");
+    const guildSelect = document.getElementById("auditGuildSelect");
+    const listEl = document.getElementById("auditLogList");
+    const actionLabels = {
+      warn: "Warning",
+      jail: "Jail",
+      unjail: "Unjail",
+      level_up: "Level Up",
+      clear_warnings: "Clear Warnings",
+      schedule_create: "Schedule Created",
+      schedule_delete: "Schedule Deleted",
+      command_add: "Command Added",
+      command_delete: "Command Deleted",
+    };
+    const loadLog = async () => {
+      const gid = guildSelect.value;
+      if (!gid) { listEl.innerHTML = '<li><span class="muted">Select a server.</span></li>'; return; }
+      listEl.innerHTML = '<li><span class="muted">Loading\u2026</span></li>';
+      try {
+        const r = await fetch(`/api/audit-log/${gid}?limit=100`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
+        const data = await r.json();
+        const log = data.log || [];
+        if (log.length === 0) {
+          listEl.innerHTML = '<li><span class="muted">No activity logged yet.</span></li>';
+          return;
+        }
+        listEl.innerHTML = "";
+        for (const entry of log) {
+          const li = document.createElement("li");
+          li.style.cssText = "flex-direction: column; align-items: flex-start;";
+          const date = new Date(entry.timestamp).toLocaleString();
+          const badge = `<span class="audit-badge ${esc(entry.action)}">${esc(actionLabels[entry.action] || entry.action)}</span>`;
+          let detail = "";
+          if (entry.username) detail += ` <strong>${esc(entry.username)}</strong>`;
+          if (entry.moderatorName) detail += ` <span class="muted">by ${esc(entry.moderatorName)}</span>`;
+          if (entry.reason) detail += ` &mdash; ${esc(entry.reason)}`;
+          if (entry.level) detail += ` reached level <strong>${entry.level}</strong>`;
+          if (entry.count != null) detail += ` (${entry.count} cleared)`;
+          li.innerHTML = `<div>${badge}${detail}</div><div class="muted" style="font-size: 0.75rem; margin-top: 0.2rem;">${esc(date)}</div>`;
+          listEl.appendChild(li);
+        }
+      } catch (e) {
+        listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`;
+      }
+    };
+    guildSelect.onchange = loadLog;
+    loadLog();
   }
 
   // --- Deleted log config ---

@@ -128,7 +128,10 @@
     <a href="#" data-page="commands">Custom commands</a>
     <a href="#" data-page="jail">Jail</a>
     <a href="#" data-page="economy">Economy</a>
+    <a href="#" data-page="levels">Levels</a>
     <a href="#" data-page="logs" id="navLogs" style="display: none;">Deleted logs</a>
+    <a href="#" data-page="warnings" id="navWarnings" style="display: none;">Warnings</a>
+    <a href="#" data-page="auditlog" id="navAuditLog" style="display: none;">Audit log</a>
     <a href="#" data-page="users" id="navUsers" style="display: none;">Users</a>
   </nav>
 
@@ -268,12 +271,56 @@
     </div>
   </div>
 
+  <div id="pageLevels" class="page">
+    <div class="section">
+      <h2>Levels &amp; XP</h2>
+      <p class="muted" style="margin-bottom: 0.75rem;">Users earn XP by chatting and spending time in voice channels. Use <code>/level</code> or <code>/leaderboard</code> in Discord.</p>
+      <label for="levelGuildSelect">Server</label>
+      <select id="levelGuildSelect"><option value="">Choose server</option></select>
+      <div id="levelStatsBar" style="display:none; margin-top: 0.75rem; margin-bottom: 0.75rem;">
+        <div class="row" style="gap: 1rem; flex-wrap: wrap;">
+          <div class="stat-card"><span class="stat-value" id="statTotalMessages">0</span><span class="stat-label">Messages</span></div>
+          <div class="stat-card"><span class="stat-value" id="statTotalVc">0</span><span class="stat-label">VC Minutes</span></div>
+          <div class="stat-card"><span class="stat-value" id="statTotalUsers">0</span><span class="stat-label">Tracked Users</span></div>
+        </div>
+      </div>
+      <div id="levelTabsWrap" style="display:none; margin-top: 1rem;">
+        <div class="level-tabs">
+          <button class="level-tab active" data-lb-type="xp">XP</button>
+          <button class="level-tab" data-lb-type="messages">Messages</button>
+          <button class="level-tab" data-lb-type="vc">Voice Chat</button>
+        </div>
+        <ol id="levelLeaderboard"></ol>
+      </div>
+    </div>
+  </div>
+
   <div id="pageLogs" class="page">
     <div id="deletedLogSection" class="section">
       <h2>Deleted message logging</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">The bot monitors <strong>every server it's in</strong> for deleted messages. Logs are sent only to channels where someone ran <strong><code>/log-deletes here</code></strong>. Run <code>/log-deletes off</code> in a channel to stop.</p>
       <p style="font-size: 0.875rem; margin-bottom: 0.5rem;">Currently sending logs to:</p>
       <ul id="deletedLogChannelsList"></ul>
+    </div>
+  </div>
+
+  <div id="pageWarnings" class="page">
+    <div class="section">
+      <h2>Warnings</h2>
+      <p class="muted" style="margin-bottom: 0.75rem;">View all warnings issued in a server. Use <code>/warn</code>, <code>/warnings</code>, <code>/clearwarnings</code> in Discord.</p>
+      <label for="warningGuildSelect">Server</label>
+      <select id="warningGuildSelect"><option value="">Choose server</option></select>
+      <ul id="warningsList"></ul>
+    </div>
+  </div>
+
+  <div id="pageAuditlog" class="page">
+    <div class="section">
+      <h2>Audit Log</h2>
+      <p class="muted" style="margin-bottom: 0.75rem;">Recent bot actions — warnings, jails, level-ups, and more.</p>
+      <label for="auditGuildSelect">Server</label>
+      <select id="auditGuildSelect"><option value="">Choose server</option></select>
+      <ul id="auditLogList"></ul>
     </div>
   </div>
 

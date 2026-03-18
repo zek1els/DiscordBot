@@ -4,9 +4,132 @@ import { save as saveMessage, get as getSavedMessage, list as listSavedMessages,
 import { addLogChannel, removeLogChannel } from "../deletedLogConfig.js";
 import { getConfig as getJailConfig, setConfig as setJailConfig } from "../jailConfig.js";
 import { addSchedule, listSchedules, removeSchedule } from "../scheduler.js";
+import { getStats, getLeaderboard } from "../levels.js";
+import { addWarning, getWarnings, clearWarnings } from "../warnings.js";
+import { log as auditLog } from "../auditLog.js";
 
 export async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand()) return;
+
+  // --- /level ---
+  if (interaction.commandName === "level") {
+    const user = interaction.options.getUser("user") || interaction.user;
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const stats = getStats(guildId, user.id);
+    const barLength = 14;
+    const filled = Math.round((stats.currentXp / stats.neededXp) * barLength);
+    const bar = "▓".repeat(filled) + "░".repeat(barLength - filled);
+    return interaction.reply({
+      embeds: [{
+        color: 0x5865f2,
+        author: { name: user.tag || user.username, icon_url: user.displayAvatarURL({ size: 64 }) },
+        fields: [
+          { name: "Level", value: `**${stats.level}**`, inline: true },
+          { name: "Total XP", value: `**${stats.xp.toLocaleString()}**`, inline: true },
+          { name: "Progress", value: `${bar} ${stats.currentXp}/${stats.neededXp} XP`, inline: false },
+          { name: "Messages", value: stats.totalMessages.toLocaleString(), inline: true },
+          { name: "VC Time", value: `${stats.vcMinutes} min`, inline: true },
+        ],
+      }],
+    });
+  }
+
+  // --- /leaderboard ---
+  if (interaction.commandName === "leaderboard") {
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const type = interaction.options.getString("type") || "xp";
+    const lb = getLeaderboard(guildId, type, 15);
+    if (lb.length === 0) return interaction.reply({ content: "No data yet. Start chatting!", ephemeral: true });
+
+    const medals = ["🥇", "🥈", "🥉"];
+    const title = { xp: "XP Leaderboard", messages: "Message Leaderboard", vc: "Voice Chat Leaderboard" }[type];
+    const lines = lb.map((e, i) => {
+      const prefix = medals[i] || `**${i + 1}.**`;
+      const member = interaction.guild.members.cache.get(e.userId);
+      const name = member?.displayName || `<@${e.userId}>`;
+      const value = type === "xp" ? `${e.xp.toLocaleString()} XP (Lv ${e.level})`
+        : type === "messages" ? `${e.totalMessages.toLocaleString()} messages`
+        : `${e.vcMinutes.toLocaleString()} minutes`;
+      return `${prefix} ${name} — ${value}`;
+    });
+
+    return interaction.reply({
+      embeds: [{
+        color: 0x5865f2,
+        title: `📊 ${title}`,
+        description: lines.join("\n"),
+        footer: { text: `${interaction.guild.name}` },
+      }],
+    });
+  }
+
+  // --- /warn ---
+  if (interaction.commandName === "warn") {
+    if (!interaction.memberPermissions?.has("ModerateMembers")) {
+      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", ephemeral: true });
+    }
+    const user = interaction.options.getUser("user");
+    const reason = interaction.options.getString("reason");
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const { warning, total } = addWarning(guildId, user.id, reason, interaction.user.id);
+    auditLog(guildId, "warn", { userId: user.id, moderatorId: interaction.user.id, reason });
+    return interaction.reply({
+      embeds: [{
+        color: 0xfee75c,
+        title: "⚠️ Warning Issued",
+        fields: [
+          { name: "User", value: `<@${user.id}>`, inline: true },
+          { name: "Moderator", value: `<@${interaction.user.id}>`, inline: true },
+          { name: "Reason", value: reason },
+          { name: "Total Warnings", value: `${total}`, inline: true },
+        ],
+        footer: { text: `ID: ${warning.id}` },
+        timestamp: new Date().toISOString(),
+      }],
+    });
+  }
+
+  // --- /warnings ---
+  if (interaction.commandName === "warnings") {
+    const user = interaction.options.getUser("user");
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const warns = getWarnings(guildId, user.id);
+    if (warns.length === 0) {
+      return interaction.reply({ content: `<@${user.id}> has no warnings.`, ephemeral: true });
+    }
+    const lines = warns.map((w, i) => {
+      const date = new Date(w.timestamp).toLocaleDateString();
+      return `**${i + 1}.** ${w.reason}\n   Mod: <@${w.moderatorId}> · ${date} · ID: \`${w.id}\``;
+    });
+    return interaction.reply({
+      embeds: [{
+        color: 0xfee75c,
+        title: `⚠️ Warnings for ${user.tag || user.username}`,
+        description: lines.join("\n\n"),
+        footer: { text: `${warns.length} warning(s)` },
+      }],
+      ephemeral: true,
+    });
+  }
+
+  // --- /clearwarnings ---
+  if (interaction.commandName === "clearwarnings") {
+    if (!interaction.memberPermissions?.has("ModerateMembers")) {
+      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", ephemeral: true });
+    }
+    const user = interaction.options.getUser("user");
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const count = clearWarnings(guildId, user.id);
+    auditLog(guildId, "clear_warnings", { userId: user.id, moderatorId: interaction.user.id, count });
+    return interaction.reply({
+      content: `Cleared **${count}** warning(s) for <@${user.id}>.`,
+    });
+  }
 
   if (interaction.commandName === "jail-setup") {
     if (!interaction.memberPermissions?.has("ManageRoles")) {

@@ -1,6 +1,8 @@
 import { list as listCustomCommands, get as getCustomCommand } from "../customCommands.js";
 import { handleEconomyCommand, ECONOMY_COMMAND_NAMES } from "../economyCommands.js";
 import { getConfig as getJailConfig, saveJailedRoles, popJailedRoles } from "../jailConfig.js";
+import { awardMessageXp } from "../levels.js";
+import { log as auditLog } from "../auditLog.js";
 
 // Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
 const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
@@ -11,6 +13,21 @@ export async function handleMessage(message) {
   if (raw == null || typeof raw !== "string") return;
   const content = raw.trim();
   if (!content) return;
+
+  const guildIdForXp = message.guildId ?? message.guild?.id;
+  if (guildIdForXp) {
+    const result = awardMessageXp(guildIdForXp, message.author.id);
+    if (result?.leveledUp) {
+      message.channel.send({
+        embeds: [{
+          color: 0x5865f2,
+          description: `🎉 <@${message.author.id}> reached **Level ${result.newLevel}**!`,
+        }],
+      }).catch(() => {});
+      auditLog(guildIdForXp, "level_up", { userId: message.author.id, level: result.newLevel });
+    }
+  }
+
   const firstChar = content.charAt(0);
   if (!CUSTOM_CMD_PREFIXES.includes(firstChar)) return;
   const afterPrefix = content.slice(1).trim();
@@ -79,6 +96,7 @@ export async function handleMessage(message) {
         if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
         if (cfg.criminalRoleId) await member.roles.add(cfg.criminalRoleId);
         await message.channel.send({ content: `<@${target.id}> has been jailed.` });
+        auditLog(guildId, "jail", { userId: target.id, moderatorId: message.author.id });
       } else {
         if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId);
         const savedRoles = popJailedRoles(message.guild.id, target.id);
@@ -88,6 +106,7 @@ export async function handleMessage(message) {
           await member.roles.add(cfg.memberRoleId);
         }
         await message.channel.send({ content: `<@${target.id}> has been released from jail.` });
+        auditLog(guildId, "unjail", { userId: target.id, moderatorId: message.author.id });
       }
     } catch (e) {
       console.error("Jail role update failed:", e);

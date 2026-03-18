@@ -7,6 +7,9 @@ import { list as listCustomCommands, add as addCustomCommand, remove as removeCu
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
 import { hasAnyUser } from "./users.js";
+import { getLeaderboard as getLevelLeaderboard, getStats as getLevelStats, getAllGuildStats } from "./levels.js";
+import { getAllGuildWarnings, getWarnings } from "./warnings.js";
+import { getLog as getAuditLog } from "./auditLog.js";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { getDataDir } from "./dataDir.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -381,6 +384,81 @@ export function createApi(client) {
       }
       await channel.send({ content: String(content).trim() || " " });
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Levels & Leaderboards ---
+  app.get("/api/levels/leaderboard/:guildId", (req, res) => {
+    const type = req.query.type || "xp";
+    try {
+      const lb = getLevelLeaderboard(req.params.guildId, type, 20);
+      const enriched = lb.map((e) => {
+        const cached = client.users.cache.get(e.userId);
+        return { ...e, username: cached?.displayName || cached?.username || e.userId };
+      });
+      res.json({ leaderboard: enriched });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/levels/stats/:guildId", (req, res) => {
+    try {
+      res.json(getAllGuildStats(req.params.guildId));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/levels/user/:guildId/:userId", (req, res) => {
+    try {
+      res.json(getLevelStats(req.params.guildId, req.params.userId));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Warnings (admin) ---
+  app.get("/api/warnings/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const warnings = getAllGuildWarnings(req.params.guildId);
+      const enriched = warnings.map((w) => {
+        const user = client.users.cache.get(w.userId);
+        const mod = client.users.cache.get(w.moderatorId);
+        return {
+          ...w,
+          username: user?.displayName || user?.username || w.userId,
+          moderatorName: mod?.displayName || mod?.username || w.moderatorId,
+        };
+      });
+      res.json({ warnings: enriched });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Audit Log (admin) ---
+  app.get("/api/audit-log/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    try {
+      const log = getAuditLog(req.params.guildId, limit);
+      const enriched = log.map((entry) => {
+        const enriched = { ...entry };
+        if (entry.userId) {
+          const u = client.users.cache.get(entry.userId);
+          enriched.username = u?.displayName || u?.username || entry.userId;
+        }
+        if (entry.moderatorId) {
+          const m = client.users.cache.get(entry.moderatorId);
+          enriched.moderatorName = m?.displayName || m?.username || entry.moderatorId;
+        }
+        return enriched;
+      });
+      res.json({ log: enriched });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

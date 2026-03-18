@@ -10,6 +10,7 @@ import { slashCommands } from "./commands.js";
 import { handleMessage } from "./handlers/messageHandler.js";
 import { handleInteraction } from "./handlers/interactionHandler.js";
 import { handleMessageDelete, handleMessageUpdate } from "./handlers/deleteLogHandler.js";
+import { handleVoiceStateUpdate } from "./handlers/voiceStateHandler.js";
 
 config();
 
@@ -24,6 +25,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
@@ -83,6 +85,7 @@ client.on("guildMemberAdd", async (member) => {
 client.on("messageCreate", (message) => handleMessage(message));
 client.on("messageDelete", (message) => handleMessageDelete(message, client));
 client.on("messageUpdate", (oldMessage, newMessage) => handleMessageUpdate(oldMessage, newMessage, client));
+client.on("voiceStateUpdate", (oldState, newState) => handleVoiceStateUpdate(oldState, newState));
 client.on("interactionCreate", (interaction) => handleInteraction(interaction));
 
 const token = process.env.DISCORD_TOKEN;

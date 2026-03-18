@@ -142,4 +142,60 @@ export const jailAssignAllCommand = {
   description: "Give the member role to every current member who doesn't have it",
 };
 
-export const slashCommands = [sendCommand, scheduleCommand, messageCommand, logDeletesCommand, jailSetupCommand, jailAssignAllCommand];
+export const levelCommand = {
+  name: "level",
+  description: "Check your level and XP (or another user's)",
+  options: [
+    { name: "user", type: 6, description: "User to check (defaults to yourself)", required: false },
+  ],
+};
+
+export const leaderboardCommand = {
+  name: "leaderboard",
+  description: "View server leaderboards",
+  options: [
+    {
+      name: "type",
+      type: 3,
+      description: "Which leaderboard to show",
+      required: false,
+      choices: [
+        { name: "XP (default)", value: "xp" },
+        { name: "Messages", value: "messages" },
+        { name: "Voice chat time", value: "vc" },
+      ],
+    },
+  ],
+};
+
+export const warnCommand = {
+  name: "warn",
+  description: "Warn a user",
+  options: [
+    { name: "user", type: 6, description: "User to warn", required: true },
+    { name: "reason", type: 3, description: "Reason for warning", required: true },
+  ],
+};
+
+export const warningsCommand = {
+  name: "warnings",
+  description: "View warnings for a user",
+  options: [
+    { name: "user", type: 6, description: "User to check", required: true },
+  ],
+};
+
+export const clearWarningsCommand = {
+  name: "clearwarnings",
+  description: "Clear all warnings for a user",
+  options: [
+    { name: "user", type: 6, description: "User to clear warnings for", required: true },
+  ],
+};
+
+export const slashCommands = [
+  sendCommand, scheduleCommand, messageCommand, logDeletesCommand,
+  jailSetupCommand, jailAssignAllCommand,
+  levelCommand, leaderboardCommand,
+  warnCommand, warningsCommand, clearWarningsCommand,
+];

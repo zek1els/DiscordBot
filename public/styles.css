@@ -244,3 +244,38 @@ code { background: var(--accent-soft); color: var(--accent); padding: 0.15rem 0.
 .lb-rank.gold { color: #f59e0b; }
 .lb-rank.silver { color: #9ca3af; }
 .lb-rank.bronze { color: #b45309; }
+/* Stat cards */
+.stat-card {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 0.75rem 1.25rem; background: var(--accent-soft);
+  border-radius: var(--radius); min-width: 100px; flex: 1;
+}
+.stat-value { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+.stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
+/* Level tabs */
+.level-tabs {
+  display: flex; gap: 0.25rem; margin-bottom: 0.75rem;
+  padding: 0.25rem; background: var(--bg);
+  border-radius: var(--radius); border: 1px solid var(--card-border);
+}
+.level-tab {
+  margin: 0; padding: 0.4rem 0.8rem; border: none; background: transparent;
+  font-size: 0.82rem; font-weight: 550; cursor: pointer;
+  border-radius: 8px; color: var(--text-muted); transition: all 0.15s;
+}
+.level-tab:hover { color: var(--text); background: var(--accent-soft); transform: none; box-shadow: none; }
+.level-tab.active { color: #fff; background: var(--btn-primary); box-shadow: var(--nav-active-shadow); }
+/* Audit action badges */
+.audit-badge {
+  display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em;
+}
+.audit-badge.warn { background: rgba(254,231,92,0.15); color: #d97706; }
+.audit-badge.jail { background: rgba(239,68,68,0.1); color: var(--error); }
+.audit-badge.unjail { background: rgba(16,185,129,0.1); color: var(--success); }
+.audit-badge.level_up { background: rgba(88,101,242,0.1); color: var(--accent); }
+.audit-badge.clear_warnings { background: rgba(107,114,128,0.1); color: var(--text-muted); }
+.audit-badge.schedule_create { background: rgba(88,101,242,0.1); color: var(--accent); }
+.audit-badge.schedule_delete { background: rgba(239,68,68,0.1); color: var(--error); }
+.audit-badge.command_add { background: rgba(88,101,242,0.1); color: var(--accent); }
+.audit-badge.command_delete { background: rgba(239,68,68,0.1); color: var(--error); }
