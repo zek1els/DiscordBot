@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
 import { addSchedule, listSchedules, removeSchedule, getScheduleById, setSchedulePaused, updateSchedule, getNextRun } from "./scheduler.js";
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
-import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage } from "./savedMessages.js";
+import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage, migrateIfNeeded as migrateSavedMessages } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
@@ -74,6 +74,7 @@ function isAdmin(req) {
 export function createApi(client) {
   const app = express();
   app.use(express.json());
+  migrateSavedMessages();
 
   function auth(req, res, next) {
     if (isAuthenticated(req)) return next();
@@ -299,37 +300,43 @@ export function createApi(client) {
     }
   });
 
-  /** List saved message templates (for schedules and send). */
+  /** List saved message templates for the current user. */
   app.get("/api/saved-messages", (req, res) => {
     try {
-      const list = listSavedMessages();
+      const user = getCurrentUser(req);
+      const ownerId = getOwnerId(user) || "_global";
+      const list = listSavedMessages(ownerId);
       res.json({ messages: list });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  /** Create or overwrite a saved message (plain text from panel). */
+  /** Create or overwrite a saved message for the current user. */
   app.post("/api/saved-messages", (req, res) => {
     const { name, content } = req.body || {};
     if (!name || typeof name !== "string" || name.trim() === "") {
       return res.status(400).json({ error: "name required" });
     }
     try {
+      const user = getCurrentUser(req);
+      const ownerId = getOwnerId(user) || "_global";
       const payload = { content: String(content ?? "").trim() || " " };
-      saveSavedMessage(name.trim(), payload);
+      saveSavedMessage(name.trim(), payload, ownerId);
       res.json({ ok: true, name: name.trim().toLowerCase() });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  /** Delete a saved message by name. */
+  /** Delete a saved message by name for the current user. */
   app.delete("/api/saved-messages/:name", (req, res) => {
     const name = req.params.name;
     if (!name) return res.status(400).json({ error: "name required" });
     try {
-      const removed = removeSavedMessage(name);
+      const user = getCurrentUser(req);
+      const ownerId = getOwnerId(user) || "_global";
+      const removed = removeSavedMessage(name, ownerId);
       if (!removed) return res.status(404).json({ error: "Saved message not found" });
       res.json({ ok: true });
     } catch (e) {
@@ -423,8 +430,9 @@ export function createApi(client) {
     }
   });
 
-  /** Simple guild list (no channel info, less likely to fail) */
+  /** Guild list — admin sees all, non-admin sees nothing */
   app.get("/api/guilds", (req, res) => {
+    if (!isAdmin(req)) return res.json({ guilds: [] });
     try {
       const guilds = client.guilds.cache.map((g) => ({ id: g.id, name: g.name }));
       res.json({ guilds });
@@ -485,7 +493,9 @@ export function createApi(client) {
     }
   });
 
+  /** Channels list — admin only */
   app.get("/api/channels", async (req, res) => {
+    if (!isAdmin(req)) return res.json({ guilds: [] });
     try {
       const guilds = [];
       for (const [id, guild] of client.guilds.cache) {
