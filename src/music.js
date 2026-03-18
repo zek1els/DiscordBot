@@ -9,14 +9,7 @@ import {
   StreamType,
 } from "@discordjs/voice";
 import play from "play-dl";
-import ytdl from "@distube/ytdl-core";
-import ffmpegPath from "ffmpeg-static";
-import { createRequire } from "module";
-
-// Tell @discordjs/voice (via prism-media) where ffmpeg lives
-const require = createRequire(import.meta.url);
-const prism = require("prism-media");
-process.env.FFMPEG_PATH = ffmpegPath;
+import { spawn } from "child_process";
 
 /** @type {Map<string, MusicQueue>} */
 const queues = new Map();
@@ -24,9 +17,64 @@ let spotifyReady = false;
 let spotifyToken = null;
 let spotifyTokenExpiry = 0;
 
+/* ------------------------------------------------------------------ */
+/*  yt-dlp helpers                                                     */
+/* ------------------------------------------------------------------ */
+
 /**
- * Get a Spotify access token using the client credentials flow.
+ * Run yt-dlp with given args and return stdout as a string.
  */
+function ytdlp(args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("yt-dlp", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    proc.stdout.on("data", (d) => (out += d));
+    proc.stderr.on("data", (d) => (err += d));
+    proc.on("close", (code) => {
+      if (code === 0) resolve(out.trim());
+      else reject(new Error(err.trim() || `yt-dlp exited with code ${code}`));
+    });
+    proc.on("error", reject);
+  });
+}
+
+/**
+ * Get the direct audio stream URL for a YouTube video using yt-dlp.
+ */
+async function getAudioUrl(videoUrl) {
+  return ytdlp([
+    "-f", "bestaudio[ext=webm]/bestaudio",
+    "-g",             // print URL only
+    "--no-playlist",
+    "--no-warnings",
+    videoUrl,
+  ]);
+}
+
+/**
+ * Get video metadata (title, duration, thumbnail) using yt-dlp.
+ */
+async function getVideoInfo(videoUrl) {
+  const json = await ytdlp([
+    "--dump-json",
+    "--no-playlist",
+    "--no-warnings",
+    videoUrl,
+  ]);
+  const data = JSON.parse(json);
+  return {
+    url: data.webpage_url || data.original_url || videoUrl,
+    title: data.title || "Unknown",
+    duration: formatDuration(data.duration || 0),
+    thumbnail: data.thumbnail || null,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Spotify helpers (client credentials flow)                          */
+/* ------------------------------------------------------------------ */
+
 async function getSpotifyToken() {
   if (spotifyToken && Date.now() < spotifyTokenExpiry) return spotifyToken;
   const id = process.env.SPOTIFY_CLIENT_ID?.trim();
@@ -47,9 +95,6 @@ async function getSpotifyToken() {
   return spotifyToken;
 }
 
-/**
- * Fetch track info from Spotify Web API.
- */
 async function spotifyGetTrack(trackId) {
   const token = await getSpotifyToken();
   const res = await fetch(`https://api.spotify.com/v1/tracks/${trackId}`, {
@@ -60,9 +105,6 @@ async function spotifyGetTrack(trackId) {
   return { name: t.name, artists: t.artists?.map((a) => a.name) || [] };
 }
 
-/**
- * Fetch playlist/album tracks from Spotify Web API.
- */
 async function spotifyGetTracks(type, id) {
   const token = await getSpotifyToken();
   const endpoint = type === "playlist"
@@ -79,10 +121,19 @@ async function spotifyGetTracks(type, id) {
   }).filter(Boolean);
 }
 
-/**
- * Initialise Spotify support if credentials are available.
- */
+/* ------------------------------------------------------------------ */
+/*  Init                                                               */
+/* ------------------------------------------------------------------ */
+
 export async function initMusic() {
+  // Verify yt-dlp is available
+  try {
+    const ver = await ytdlp(["--version"]);
+    console.log(`Music: yt-dlp ${ver} found.`);
+  } catch {
+    console.warn("Music: yt-dlp not found — music commands will not work. Install yt-dlp.");
+  }
+
   const spotifyId = process.env.SPOTIFY_CLIENT_ID?.trim();
   const spotifySecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
   if (spotifyId && spotifySecret) {
@@ -101,6 +152,10 @@ export async function initMusic() {
 export function getQueue(guildId) {
   return queues.get(guildId) || null;
 }
+
+/* ------------------------------------------------------------------ */
+/*  MusicQueue                                                         */
+/* ------------------------------------------------------------------ */
 
 export class MusicQueue {
   constructor(guildId, voiceChannel, textChannel) {
@@ -166,21 +221,35 @@ export class MusicQueue {
     const song = this.songs.shift();
     this.current = song;
     try {
-      const stream = ytdl(song.url, {
-        filter: "audioonly",
-        quality: "highestaudio",
-        highWaterMark: 1 << 25,
+      // Get direct audio URL via yt-dlp, then stream it through ffmpeg
+      const audioUrl = await getAudioUrl(song.url);
+      const ffmpeg = spawn("ffmpeg", [
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5",
+        "-i", audioUrl,
+        "-f", "opus",
+        "-ar", "48000",
+        "-ac", "2",
+        "-loglevel", "error",
+        "pipe:1",
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+
+      ffmpeg.stderr.on("data", (d) => {
+        const msg = d.toString().trim();
+        if (msg) console.error("ffmpeg stderr:", msg);
       });
-      // Handle stream errors before they become unhandled
-      stream.on("error", (err) => {
-        console.error("ytdl stream error:", err.message);
-        this.textChannel.send({ embeds: [{ color: 0xed4245, description: `❌ Stream error for **${song.title}**: ${err.message}` }] }).catch(() => {});
+
+      ffmpeg.on("error", (err) => {
+        console.error("ffmpeg process error:", err.message);
+        this.textChannel.send({ embeds: [{ color: 0xed4245, description: `❌ Playback error for **${song.title}**: ${err.message}` }] }).catch(() => {});
         this.current = null;
         this.playing = false;
         this.processQueue();
       });
-      const resource = createAudioResource(stream, {
-        inputType: StreamType.Arbitrary,
+
+      const resource = createAudioResource(ffmpeg.stdout, {
+        inputType: StreamType.OggOpus,
         inlineVolume: true,
       });
       resource.volume?.setVolume(this.volume / 100);
@@ -213,7 +282,6 @@ export class MusicQueue {
 
   setVolume(vol) {
     this.volume = Math.max(0, Math.min(150, vol));
-    // Volume applies to next song; current resource volume can be adjusted if available
   }
 
   shuffle() {
@@ -239,38 +307,43 @@ export class MusicQueue {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/*  Song resolution                                                    */
+/* ------------------------------------------------------------------ */
+
 /**
  * Search/resolve a song from a URL or search query.
  * @param {string} query - URL or search terms
- * @returns {Promise<{url: string, title: string, duration: string, thumbnail?: string} | null>}
+ * @returns {Promise<Object|Object[]|null>}
  */
 export async function resolveSong(query) {
   query = query.trim();
   const urlType = await play.validate(query);
 
-  // Direct YouTube URL
+  // Direct YouTube URL — use yt-dlp for metadata
   if (urlType === "yt_video") {
-    const info = await ytdl.getBasicInfo(query);
-    const d = info.videoDetails;
-    const secs = parseInt(d.lengthSeconds, 10) || 0;
-    return {
-      url: d.video_url,
-      title: d.title || "Unknown",
-      duration: formatDuration(secs),
-      thumbnail: d.thumbnails?.[d.thumbnails.length - 1]?.url,
-    };
+    return getVideoInfo(query);
   }
 
-  // YouTube playlist
+  // YouTube playlist — use yt-dlp to enumerate
   if (urlType === "yt_playlist") {
-    const playlist = await play.playlist_info(query, { incomplete: true });
-    const videos = await playlist.all_videos();
-    return videos.map((v) => ({
-      url: v.url,
-      title: v.title || "Unknown",
-      duration: v.durationRaw || "?",
-      thumbnail: v.thumbnails?.[0]?.url,
-    }));
+    try {
+      const raw = await ytdlp([
+        "--flat-playlist",
+        "--dump-json",
+        "--no-warnings",
+        query,
+      ]);
+      const entries = raw.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+      return entries.slice(0, 100).map((e) => ({
+        url: e.url?.startsWith("http") ? e.url : `https://www.youtube.com/watch?v=${e.id}`,
+        title: e.title || "Unknown",
+        duration: formatDuration(e.duration || 0),
+        thumbnail: e.thumbnails?.[0]?.url || null,
+      }));
+    } catch {
+      return null;
+    }
   }
 
   // Spotify track
@@ -280,14 +353,8 @@ export async function resolveSong(query) {
     if (!trackId) return null;
     const sp = await spotifyGetTrack(trackId);
     if (!sp) return null;
-    const searched = await play.search(`${sp.name} ${sp.artists[0] || ""}`, { limit: 1 });
-    if (searched.length === 0) return null;
-    return {
-      url: searched[0].url,
-      title: `${sp.name} — ${sp.artists.join(", ") || "Unknown"}`,
-      duration: searched[0].durationRaw || "?",
-      thumbnail: searched[0].thumbnails?.[0]?.url,
-    };
+    // Search YouTube via yt-dlp
+    return searchYouTube(`${sp.name} ${sp.artists[0] || ""}`);
   }
 
   // Spotify playlist/album
@@ -300,44 +367,50 @@ export async function resolveSong(query) {
     const results = [];
     for (const track of tracks.slice(0, 50)) {
       try {
-        const searched = await play.search(`${track.name} ${track.artists[0] || ""}`, { limit: 1 });
-        if (searched.length > 0) {
-          results.push({
-            url: searched[0].url,
-            title: `${track.name} — ${track.artists.join(", ") || "Unknown"}`,
-            duration: searched[0].durationRaw || "?",
-            thumbnail: searched[0].thumbnails?.[0]?.url,
-          });
+        const song = await searchYouTube(`${track.name} ${track.artists[0] || ""}`);
+        if (song) {
+          song.title = `${track.name} — ${track.artists.join(", ") || "Unknown"}`;
+          results.push(song);
         }
       } catch {}
     }
     return results.length > 0 ? results : null;
   }
 
-  // SoundCloud
+  // SoundCloud — yt-dlp supports it natively
   if (urlType === "so_track") {
-    const info = await play.soundcloud(query);
-    return {
-      url: info.url,
-      title: info.name || "Unknown",
-      duration: info.durationInSec ? formatDuration(info.durationInSec) : "?",
-      thumbnail: info.thumbnail,
-    };
+    return getVideoInfo(query);
   }
 
-  // Search YouTube
-  const searched = await play.search(query, { limit: 1 });
-  if (searched.length === 0) return null;
-  return {
-    url: searched[0].url,
-    title: searched[0].title || "Unknown",
-    duration: searched[0].durationRaw || "?",
-    thumbnail: searched[0].thumbnails?.[0]?.url,
-  };
+  // Text search — use yt-dlp ytsearch
+  return searchYouTube(query);
+}
+
+/**
+ * Search YouTube for a single result using yt-dlp.
+ */
+async function searchYouTube(query) {
+  try {
+    const json = await ytdlp([
+      `ytsearch1:${query}`,
+      "--dump-json",
+      "--no-playlist",
+      "--no-warnings",
+    ]);
+    const data = JSON.parse(json);
+    return {
+      url: data.webpage_url || `https://www.youtube.com/watch?v=${data.id}`,
+      title: data.title || "Unknown",
+      duration: formatDuration(data.duration || 0),
+      thumbnail: data.thumbnail || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function formatDuration(sec) {
   const m = Math.floor(sec / 60);
-  const s = sec % 60;
+  const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
 }

@@ -1,3 +1,3 @@
 [phases.setup]
 aptPkgs = ["ffmpeg"]
-nixPkgs = ["nodejs_22"]
+nixPkgs = ["nodejs_22", "yt-dlp"]
