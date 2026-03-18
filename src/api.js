@@ -135,6 +135,13 @@ export function createApi(client) {
   // Serve web UI
   app.use(express.static(join(__dirname, "..", "public")));
 
+  // Bot invite redirect
+  app.get("/invite", (req, res) => {
+    if (!DISCORD_CLIENT_ID) return res.status(503).send("Bot client ID not configured.");
+    const url = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&permissions=8&scope=bot%20applications.commands`;
+    res.redirect(url);
+  });
+
   // Register – public. If email verification is configured, only sends a code
   // (account is created later in /api/auth/verify). Otherwise creates immediately.
   app.post("/api/auth/register", async (req, res) => {
