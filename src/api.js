@@ -8,8 +8,9 @@ import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMes
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
-import { create as createUser, validate as validateUser, getById, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser } from "./users.js";
-import { existsSync, readFileSync } from "fs";
+import { create as createUser, validate as validateUser, getById, getByEmail, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser, markVerified } from "./users.js";
+import { isSmtpConfigured, sendVerificationCode, verifyCode } from "./emailVerification.js";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import { getDataDir } from "./dataDir.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,8 +28,51 @@ const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-/** @type {Map<string, { userId: string, email: string, discordId?: string, username?: string }>} */
+/** @type {Map<string, { userId: string, email: string, discordId?: string, username?: string, expiresAt?: number }>} */
 const sessions = new Map();
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, matches cookie MaxAge
+
+function getSessionsPath() {
+  return join(getDataDir(), "sessions.json");
+}
+
+function loadSessions() {
+  try {
+    const p = getSessionsPath();
+    if (existsSync(p)) {
+      const data = JSON.parse(readFileSync(p, "utf8"));
+      const now = Date.now();
+      for (const [token, session] of Object.entries(data)) {
+        if (session.expiresAt && session.expiresAt < now) continue;
+        sessions.set(token, session);
+      }
+      console.log(`Loaded ${sessions.size} session(s) from disk.`);
+    }
+  } catch (e) {
+    console.error("Failed to load sessions:", e);
+  }
+}
+
+function persistSessions() {
+  try {
+    const obj = Object.fromEntries(sessions);
+    writeFileSync(getSessionsPath(), JSON.stringify(obj, null, 2), "utf8");
+  } catch (e) {
+    console.error("Failed to persist sessions:", e);
+  }
+}
+
+function sessionSet(token, data) {
+  sessions.set(token, { ...data, expiresAt: Date.now() + SESSION_MAX_AGE_MS });
+  persistSessions();
+}
+
+function sessionDelete(token) {
+  sessions.delete(token);
+  persistSessions();
+}
+
+loadSessions();
 
 function getCookie(req, name) {
   const c = req.headers.cookie;
@@ -92,30 +136,70 @@ export function createApi(client) {
   app.use(express.static(join(__dirname, "..", "public")));
 
   // Create account (register) – public
-  app.post("/api/auth/register", (req, res) => {
+  app.post("/api/auth/register", async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    const needsVerification = isSmtpConfigured();
     try {
-      createUser(String(email).trim(), String(password));
-      const user = validateUser(String(email).trim(), String(password));
-      if (!user) return res.status(500).json({ error: "Account created but login failed" });
-      const sessionToken = randomBytes(24).toString("hex");
-      sessions.set(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
-      res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
-      return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
+      createUser(String(email).trim(), String(password), { verified: !needsVerification });
     } catch (e) {
       return res.status(400).json({ error: e.message });
     }
+    if (needsVerification) {
+      const sent = await sendVerificationCode(String(email).trim());
+      if (!sent) {
+        return res.status(500).json({ error: "Account created but failed to send verification email. Check SMTP settings." });
+      }
+      return res.json({ ok: true, needsVerification: true, email: String(email).trim().toLowerCase() });
+    }
+    const user = validateUser(String(email).trim(), String(password));
+    if (!user) return res.status(500).json({ error: "Account created but login failed" });
+    const sessionToken = randomBytes(24).toString("hex");
+    sessionSet(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
+    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
+    return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
+  });
+
+  // Verify email with 6-digit code – public
+  app.post("/api/auth/verify", (req, res) => {
+    const { email, code } = req.body || {};
+    if (!email || !code) return res.status(400).json({ error: "Email and code required" });
+    const result = verifyCode(String(email).trim(), String(code));
+    if (result === "expired") return res.status(400).json({ error: "Code expired. Click resend to get a new one." });
+    if (result === "invalid") return res.status(400).json({ error: "Invalid code. Check your email and try again." });
+    markVerified(String(email).trim());
+    const user = getByEmail(String(email).trim());
+    if (!user) return res.status(500).json({ error: "User not found" });
+    const sessionToken = randomBytes(24).toString("hex");
+    sessionSet(sessionToken, { userId: user.id, email: user.email });
+    res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
+    return res.json({ ok: true, user: { email: user.email } });
+  });
+
+  // Resend verification code – public
+  app.post("/api/auth/resend-code", async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: "Email required" });
+    const user = getByEmail(String(email).trim());
+    if (!user) return res.status(404).json({ error: "No account with this email" });
+    if (user.verified) return res.json({ ok: true, alreadyVerified: true });
+    const sent = await sendVerificationCode(String(email).trim());
+    if (!sent) return res.status(500).json({ error: "Failed to send email. Check SMTP settings." });
+    return res.json({ ok: true });
   });
 
   // Log in with email + password – public
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
     const user = validateUser(String(email).trim(), String(password));
     if (!user) return res.status(401).json({ error: "Invalid email or password" });
+    if (!user.verified && isSmtpConfigured()) {
+      await sendVerificationCode(String(email).trim());
+      return res.status(403).json({ error: "Email not verified. A new code has been sent to your inbox.", needsVerification: true, email: user.email });
+    }
     const sessionToken = randomBytes(24).toString("hex");
-    sessions.set(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
+    sessionSet(sessionToken, { userId: user.id, email: user.email, discordId: user.discordId, username: user.discordUsername });
     res.setHeader("Set-Cookie", "admin_session=" + sessionToken + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
     return res.json({ ok: true, user: { email: user.email, discordId: user.discordId, username: user.discordUsername } });
   });
@@ -177,13 +261,13 @@ export function createApi(client) {
       const username = discordUser.username || discordUser.global_name || "User";
       if (isLink && session?.userId) {
         setDiscord(session.userId, discordId, username);
-        sessions.set(sessionToken, { ...session, discordId, username });
+        sessionSet(sessionToken, { ...session, discordId, username });
         return res.redirect("/?linked=1");
       }
       const appUser = getByDiscordId(discordId);
       if (appUser) {
         const sessionTokenNew = randomBytes(24).toString("hex");
-        sessions.set(sessionTokenNew, { userId: appUser.id, email: appUser.email, discordId: appUser.discordId, username: appUser.discordUsername });
+        sessionSet(sessionTokenNew, { userId: appUser.id, email: appUser.email, discordId: appUser.discordId, username: appUser.discordUsername });
         res.setHeader("Set-Cookie", "admin_session=" + sessionTokenNew + "; Path=/; HttpOnly; SameSite=Lax; MaxAge=604800");
         return res.redirect("/");
       }
@@ -202,7 +286,7 @@ export function createApi(client) {
       const token = getCookie(req, "admin_session");
       if (token && sessions.has(token)) {
         const s = sessions.get(token);
-        sessions.set(token, { userId: s.userId, email: s.email });
+        sessionSet(token, { userId: s.userId, email: s.email });
       }
       res.json({ ok: true });
     } catch (e) {
@@ -212,7 +296,7 @@ export function createApi(client) {
 
   app.post("/api/logout", (req, res) => {
     const token = getCookie(req, "admin_session");
-    if (token) sessions.delete(token);
+    if (token) sessionDelete(token);
     res.setHeader("Set-Cookie", "admin_session=; Path=/; HttpOnly; MaxAge=0");
     res.json({ ok: true });
   });
@@ -231,6 +315,7 @@ export function createApi(client) {
     res.json({
       discordLogin: !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && PUBLIC_URL),
       canRegister: true,
+      emailVerification: isSmtpConfigured(),
     });
   });
 
@@ -344,47 +429,41 @@ export function createApi(client) {
     }
   });
 
-  /** List custom commands and prefix. */
+  /** List custom commands for a guild. */
   app.get("/api/custom-commands", (req, res) => {
+    const guildId = req.query.guildId;
+    if (!guildId) return res.status(400).json({ error: "guildId query parameter required" });
     try {
-      const commands = listCustomCommands();
+      const commands = listCustomCommands(guildId);
       res.json({ prefix: getCustomCommandPrefix(), commands });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  /** Debug: path and count so panel can show "X commands loaded from /data" and troubleshoot. */
-  app.get("/api/custom-commands/debug", (req, res) => {
-    try {
-      const commands = listCustomCommands();
-      const dataPath = join(getDataDir(), "custom-commands.json");
-      res.json({ prefix: getCustomCommandPrefix(), commandsCount: commands.length, dataPath });
-    } catch (e) {
-      res.status(500).json({ error: e.message });
-    }
-  });
-
-  /** Create or update a custom command. */
+  /** Create or update a custom command for a guild. */
   app.post("/api/custom-commands", (req, res) => {
-    const { name, template } = req.body || {};
+    const { name, template, guildId } = req.body || {};
+    if (!guildId) return res.status(400).json({ error: "guildId required" });
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({ error: "name required" });
     }
     try {
-      const key = addCustomCommand(name.trim(), template);
+      const key = addCustomCommand(name.trim(), template, guildId);
       res.json({ ok: true, name: key });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  /** Delete a custom command by name. */
+  /** Delete a custom command by name for a guild. */
   app.delete("/api/custom-commands/:name", (req, res) => {
     const name = req.params.name;
+    const guildId = req.query.guildId;
     if (!name) return res.status(400).json({ error: "name required" });
+    if (!guildId) return res.status(400).json({ error: "guildId query parameter required" });
     try {
-      const removed = removeCustomCommand(name);
+      const removed = removeCustomCommand(name, guildId);
       if (!removed) return res.status(404).json({ error: "Custom command not found" });
       res.json({ ok: true });
     } catch (e) {

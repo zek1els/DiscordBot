@@ -261,6 +261,20 @@
     <p style="margin-top: 0.5rem;"><button type="button" id="darkModeBtnRegister" class="btn-sm btn-secondary">Dark mode</button></p>
   </div>
 
+  <div id="verifyPage" class="auth-page" style="display: none;">
+    <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLoginFromVerify" class="muted" style="font-size: 0.875rem; text-decoration: none;">← Back to login</a></p>
+    <h1>Verify your email</h1>
+    <p class="muted" style="margin-bottom: 1rem;">We sent a 6-digit code to <strong id="verifyEmailDisplay"></strong>. Enter it below.</p>
+    <div class="section" style="margin-bottom: 1rem;">
+      <label for="verifyCodeInput">Verification code</label>
+      <input type="text" id="verifyCodeInput" placeholder="000000" maxlength="6" autocomplete="one-time-code" style="font-size: 1.5rem; text-align: center; letter-spacing: 8px; font-family: monospace;">
+      <button type="button" id="verifyBtn" style="width: 100%; margin-top: 0.5rem;">Verify</button>
+      <p id="verifyStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
+      <p style="margin-top: 0.75rem; font-size: 0.875rem;" class="muted">Didn't receive the code? <a href="#" id="resendCodeLink" style="color: var(--btn-primary);">Resend</a></p>
+    </div>
+    <p style="margin-top: 0.5rem;"><button type="button" id="darkModeBtnVerify" class="btn-sm btn-secondary">Dark mode</button></p>
+  </div>
+
   <div id="appPanel" style="display: none;">
   <div class="app-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
     <div>
@@ -356,15 +370,18 @@
       <h2>Custom commands</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Users type <strong id="customCommandPrefix">!</strong><strong>command</strong> in chat (e.g. <code>!hug @max</code>). The bot replies with your template. Use placeholders: <code>{author}</code> (who ran it), <code>{target}</code> (first @mention), <code>{author_username}</code>, <code>{target_username}</code>, <code>{args}</code> (rest of message).</p>
       <p class="info-box"><strong>If nothing happens when you type !command:</strong> In the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> open your app → <strong>Bot</strong> → under <strong>Privileged Gateway Intents</strong> turn on <strong>MESSAGE CONTENT INTENT</strong>, then save. Restart the bot if it was already running.</p>
-      <label for="customCommandName">Command name</label>
-      <input type="text" id="customCommandName" placeholder="e.g. hug">
-      <label for="customCommandTemplate">Response template</label>
-      <textarea id="customCommandTemplate" placeholder="e.g. {author} hugged {target}" style="min-height: 60px;"></textarea>
-      <button type="button" id="customCommandSaveBtn">Save</button>
-      <p id="customCommandStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
-      <h3>Commands</h3>
-      <p id="customCommandsDebug" class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;"></p>
-      <ul id="customCommandsList"></ul>
+      <label for="cmdGuildSelect">Server</label>
+      <select id="cmdGuildSelect"><option value="">— Select a server —</option></select>
+      <div id="cmdFormArea" style="display:none;">
+        <label for="customCommandName">Command name</label>
+        <input type="text" id="customCommandName" placeholder="e.g. hug">
+        <label for="customCommandTemplate">Response template</label>
+        <textarea id="customCommandTemplate" placeholder="e.g. {author} hugged {target}" style="min-height: 60px;"></textarea>
+        <button type="button" id="customCommandSaveBtn">Save</button>
+        <p id="customCommandStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
+        <h3>Commands</h3>
+        <ul id="customCommandsList"></ul>
+      </div>
     </div>
   </div>
 
@@ -496,9 +513,11 @@
     const landingPanel = document.getElementById("landingPanel");
     const loginPage = document.getElementById("loginPage");
     const registerPage = document.getElementById("registerPage");
+    const verifyPage = document.getElementById("verifyPage");
     const appPanel = document.getElementById("appPanel");
     const loginStatus = document.getElementById("loginStatus");
     const logoutLink = document.getElementById("logoutLink");
+    let pendingVerifyEmail = "";
 
     const fetchOpts = (opts = {}) => ({ ...opts, credentials: "include" });
     function headers() {
@@ -518,6 +537,7 @@
       landingPanel.style.display = "none";
       loginPage.style.display = "none";
       registerPage.style.display = "none";
+      verifyPage.style.display = "none";
       appPanel.style.display = "block";
       if (window._isAdmin) {
         document.getElementById("adminBadge").style.display = "inline";
@@ -560,12 +580,14 @@
       appPanel.style.display = "none";
       loginPage.style.display = "none";
       registerPage.style.display = "none";
+      verifyPage.style.display = "none";
       landingPanel.style.display = "flex";
     }
 
     function showLoginPage() {
       landingPanel.style.display = "none";
       registerPage.style.display = "none";
+      verifyPage.style.display = "none";
       appPanel.style.display = "none";
       loginPage.style.display = "block";
     }
@@ -573,6 +595,7 @@
     function showRegisterPage() {
       landingPanel.style.display = "none";
       loginPage.style.display = "none";
+      verifyPage.style.display = "none";
       appPanel.style.display = "none";
       registerPage.style.display = "block";
     }
@@ -581,7 +604,20 @@
       appPanel.style.display = "none";
       landingPanel.style.display = "none";
       registerPage.style.display = "none";
+      verifyPage.style.display = "none";
       loginPage.style.display = "block";
+    }
+
+    function showVerifyPage(email) {
+      pendingVerifyEmail = email;
+      document.getElementById("verifyEmailDisplay").textContent = email;
+      document.getElementById("verifyCodeInput").value = "";
+      document.getElementById("verifyStatus").textContent = "";
+      landingPanel.style.display = "none";
+      loginPage.style.display = "none";
+      registerPage.style.display = "none";
+      appPanel.style.display = "none";
+      verifyPage.style.display = "block";
     }
 
     logoutLink.addEventListener("click", async (e) => {
@@ -597,6 +633,10 @@
       if (!email || !password) { statusEl.textContent = "Enter email and password."; statusEl.className = "error"; return; }
       const r = await fetch("/api/auth/register", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email, password }) }));
       const data = await r.json().catch(() => ({}));
+      if (r.ok && data.needsVerification) {
+        showVerifyPage(data.email || email);
+        return;
+      }
       if (r.ok) {
         statusEl.textContent = "Account created. Loading…";
         statusEl.className = "success";
@@ -615,6 +655,10 @@
       if (!email || !password) { statusEl.textContent = "Enter email and password."; statusEl.className = "error"; return; }
       const r = await fetch("/api/auth/login", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email, password }) }));
       const data = await r.json().catch(() => ({}));
+      if (data.needsVerification) {
+        showVerifyPage(data.email || email);
+        return;
+      }
       if (r.ok) {
         statusEl.textContent = "";
         await checkAuth();
@@ -623,6 +667,50 @@
         statusEl.textContent = data.error || "Login failed.";
         statusEl.className = "error";
       }
+    });
+
+    // Verification page handlers
+    document.getElementById("verifyBtn").addEventListener("click", async () => {
+      const code = document.getElementById("verifyCodeInput").value.trim();
+      const statusEl = document.getElementById("verifyStatus");
+      if (!code) { statusEl.textContent = "Enter the code from your email."; statusEl.className = "error"; return; }
+      const r = await fetch("/api/auth/verify", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email: pendingVerifyEmail, code }) }));
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        statusEl.textContent = "Verified! Loading…";
+        statusEl.className = "success";
+        await checkAuth();
+        showApp();
+      } else {
+        statusEl.textContent = data.error || "Verification failed.";
+        statusEl.className = "error";
+      }
+    });
+
+    document.getElementById("resendCodeLink").addEventListener("click", async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById("verifyStatus");
+      statusEl.textContent = "Sending…";
+      statusEl.className = "muted";
+      const r = await fetch("/api/auth/resend-code", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ email: pendingVerifyEmail }) }));
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data.alreadyVerified) {
+        statusEl.textContent = "Already verified! Redirecting…";
+        statusEl.className = "success";
+        await checkAuth();
+        showApp();
+      } else if (r.ok) {
+        statusEl.textContent = "New code sent! Check your inbox.";
+        statusEl.className = "success";
+      } else {
+        statusEl.textContent = data.error || "Failed to resend.";
+        statusEl.className = "error";
+      }
+    });
+
+    document.getElementById("backToLoginFromVerify").addEventListener("click", (e) => {
+      e.preventDefault();
+      showLogin();
     });
 
     document.getElementById("unlinkDiscordBtn").addEventListener("click", async () => {
@@ -866,50 +954,71 @@
       }
     });
 
-    async function loadCustomCommandsPage() {
+    async function loadCmdGuildCommands() {
+      const guildSelect = document.getElementById("cmdGuildSelect");
+      const formArea = document.getElementById("cmdFormArea");
       const listEl = document.getElementById("customCommandsList");
       const prefixEl = document.getElementById("customCommandPrefix");
-      const debugEl = document.getElementById("customCommandsDebug");
-      if (!listEl) return;
-      const r = await fetch("/api/custom-commands", fetchOpts({ headers: headers() }));
-      if (!r.ok) { listEl.innerHTML = "<li class=\"muted\">Could not load</li>"; if (debugEl) debugEl.textContent = ""; return; }
+      const gid = guildSelect.value;
+      if (!gid) { formArea.style.display = "none"; return; }
+      formArea.style.display = "";
+      listEl.innerHTML = "<li class=\"muted\">Loading…</li>";
+      const r = await fetch("/api/custom-commands?guildId=" + encodeURIComponent(gid), fetchOpts({ headers: headers() }));
+      if (!r.ok) { listEl.innerHTML = "<li class=\"muted\">Could not load</li>"; return; }
       const data = await r.json().catch(() => ({}));
       const { prefix = "!", commands = [] } = data;
       if (prefixEl) prefixEl.textContent = prefix;
-      const debugRes = await fetch("/api/custom-commands/debug", fetchOpts({ headers: headers() }));
-      if (debugEl && debugRes.ok) {
-        const debugData = await debugRes.json().catch(() => ({}));
-        debugEl.textContent = debugData.commandsCount + " command(s) loaded from " + (debugData.dataPath || "—");
-      } else if (debugEl) debugEl.textContent = "";
       if (commands.length === 0) {
-        listEl.innerHTML = "<li class=\"muted\">No custom commands. Add one above.</li>";
+        listEl.innerHTML = "<li class=\"muted\">No custom commands for this server. Add one above.</li>";
         return;
       }
       listEl.innerHTML = commands.map(c => `<li><code>${escapeHtml(prefix + c.name)}</code> → ${escapeHtml(c.template)} <button type="button" class="btn-sm danger" data-cmd-name="${escapeHtml(c.name)}" data-action="delete-custom-cmd">Delete</button></li>`).join("");
       listEl.querySelectorAll("[data-action=delete-custom-cmd]").forEach(btn => {
         btn.addEventListener("click", async () => {
           const name = btn.dataset.cmdName;
-          const r = await fetch("/api/custom-commands/" + encodeURIComponent(name), fetchOpts({ method: "DELETE", headers: headers() }));
-          if (r.ok) loadCustomCommandsPage();
+          const r2 = await fetch("/api/custom-commands/" + encodeURIComponent(name) + "?guildId=" + encodeURIComponent(gid), fetchOpts({ method: "DELETE", headers: headers() }));
+          if (r2.ok) loadCmdGuildCommands();
         });
       });
+    }
+    document.getElementById("cmdGuildSelect").addEventListener("change", loadCmdGuildCommands);
+
+    async function loadCustomCommandsPage() {
+      const guildSelect = document.getElementById("cmdGuildSelect");
+      if (!guildSelect) return;
+      if (guildSelect.options.length <= 1) {
+        try {
+          const r = await fetch("/api/guilds", fetchOpts({ headers: headers() }));
+          if (r.ok) {
+            const data = await r.json();
+            for (const g of (data.guilds || [])) {
+              const o = document.createElement("option");
+              o.value = g.id; o.textContent = g.name;
+              guildSelect.appendChild(o);
+            }
+          }
+        } catch (_) {}
+      }
+      if (guildSelect.value) loadCmdGuildCommands();
     }
 
     document.getElementById("customCommandSaveBtn").addEventListener("click", async () => {
       const nameEl = document.getElementById("customCommandName");
       const templateEl = document.getElementById("customCommandTemplate");
       const statusEl = document.getElementById("customCommandStatus");
+      const guildId = document.getElementById("cmdGuildSelect").value;
       const name = nameEl.value.trim();
       const template = templateEl.value.trim();
+      if (!guildId) { statusEl.textContent = "Select a server first."; statusEl.className = "error"; return; }
       if (!name) { statusEl.textContent = "Enter a command name."; statusEl.className = "error"; return; }
-      const r = await fetch("/api/custom-commands", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ name, template }) }));
+      const r = await fetch("/api/custom-commands", fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ name, template, guildId }) }));
       const data = await r.json().catch(() => ({}));
       if (r.ok) {
         statusEl.textContent = "Saved. Users can type " + escapeHtml("!" + name) + " in chat.";
         statusEl.className = "success";
         nameEl.value = "";
         templateEl.value = "";
-        loadCustomCommandsPage();
+        loadCmdGuildCommands();
       } else {
         statusEl.textContent = data.error || "Failed.";
         statusEl.className = "error";
@@ -940,10 +1049,10 @@
       document.documentElement.setAttribute("data-theme", dark ? "dark" : "");
       function updateLabels() {
         const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-        document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin, #darkModeBtnRegister").forEach(b => { if (b) b.textContent = isDark ? "Light" : "Dark"; });
+        document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin, #darkModeBtnRegister, #darkModeBtnVerify").forEach(b => { if (b) b.textContent = isDark ? "Light" : "Dark"; });
       }
       updateLabels();
-      document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin, #darkModeBtnRegister").forEach(btn => {
+      document.querySelectorAll("#darkModeBtn, #darkModeBtnLogin, #darkModeBtnRegister, #darkModeBtnVerify").forEach(btn => {
         if (!btn) return;
         btn.addEventListener("click", () => {
           const isDark = document.documentElement.getAttribute("data-theme") === "dark";

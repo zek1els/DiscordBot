@@ -37,16 +37,17 @@ function generateId() {
 }
 
 /**
- * @typedef {{ id: string, email: string, passwordHash: string, salt: string, discordId?: string, discordUsername?: string, createdAt: string }} User
+ * @typedef {{ id: string, email: string, passwordHash: string, salt: string, verified?: boolean, discordId?: string, discordUsername?: string, createdAt: string }} User
  */
 
 /**
  * Create a new user (register). Email must be unique.
  * @param {string} email
  * @param {string} password
- * @returns {User}
+ * @param {{ verified?: boolean }} [opts]
+ * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string }}
  */
-export function create(email, password) {
+export function create(email, password, opts = {}) {
   const normalized = String(email).trim().toLowerCase();
   if (!normalized) throw new Error("Email required");
   if (!password || password.length < 6) throw new Error("Password must be at least 6 characters");
@@ -61,18 +62,19 @@ export function create(email, password) {
     email: normalized,
     passwordHash,
     salt,
+    verified: opts.verified !== false,
     createdAt: new Date().toISOString(),
   };
   users.push(user);
   saveAll(users);
-  return { id: user.id, email: user.email, discordId: user.discordId, discordUsername: user.discordUsername };
+  return { id: user.id, email: user.email, verified: user.verified, discordId: user.discordId, discordUsername: user.discordUsername };
 }
 
 /**
  * Validate credentials and return user (without sensitive fields).
  * @param {string} email
  * @param {string} password
- * @returns {{ id: string, email: string, discordId?: string, discordUsername?: string } | null}
+ * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
  */
 export function validate(email, password) {
   const normalized = String(email).trim().toLowerCase();
@@ -87,31 +89,59 @@ export function validate(email, password) {
   } catch (_) {
     return null;
   }
-  return { id: user.id, email: user.email, discordId: user.discordId, discordUsername: user.discordUsername };
+  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
+}
+
+/**
+ * Mark a user as email-verified by email address.
+ * @param {string} email
+ * @returns {boolean}
+ */
+export function markVerified(email) {
+  const normalized = String(email).trim().toLowerCase();
+  const users = loadAll();
+  const i = users.findIndex((u) => u.email.toLowerCase() === normalized);
+  if (i === -1) return false;
+  users[i].verified = true;
+  saveAll(users);
+  return true;
+}
+
+/**
+ * Check if a user exists by email (for re-sending verification codes).
+ * @param {string} email
+ * @returns {{ id: string, email: string, verified: boolean } | null}
+ */
+export function getByEmail(email) {
+  const normalized = String(email).trim().toLowerCase();
+  const users = loadAll();
+  const user = users.find((u) => u.email.toLowerCase() === normalized);
+  if (!user) return null;
+  return { id: user.id, email: user.email, verified: user.verified !== false };
 }
 
 /**
  * Find user by id.
  * @param {string} userId
- * @returns {{ id: string, email: string, discordId?: string, discordUsername?: string } | null}
+ * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
  */
 export function getById(userId) {
   const users = loadAll();
   const user = users.find((u) => u.id === userId);
   if (!user) return null;
-  return { id: user.id, email: user.email, discordId: user.discordId, discordUsername: user.discordUsername };
+  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
 }
 
 /**
  * Find user by Discord ID.
  * @param {string} discordId
- * @returns {{ id: string, email: string, discordId?: string, discordUsername?: string } | null}
+ * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
  */
 export function getByDiscordId(discordId) {
   const users = loadAll();
   const user = users.find((u) => u.discordId === discordId);
   if (!user) return null;
-  return { id: user.id, email: user.email, discordId: user.discordId, discordUsername: user.discordUsername };
+  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
 }
 
 /**

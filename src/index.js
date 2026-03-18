@@ -7,7 +7,7 @@ import { initScheduler, addSchedule, listSchedules, removeSchedule } from "./sch
 import { buildMessagePayload, hasMessageContent } from "./embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "./savedMessages.js";
 import { getLogChannelIdsForGuild, addLogChannel, removeLogChannel, getAllLogChannels } from "./deletedLogConfig.js";
-import { list as listCustomCommands, get as getCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
+import { list as listCustomCommands, get as getCustomCommand, getPrefix as getCustomCommandPrefix, migrateIfNeeded as migrateCustomCommands, totalCount as totalCustomCommands } from "./customCommands.js";
 import { getConfig as getJailConfig, setConfig as setJailConfig, saveJailedRoles, popJailedRoles } from "./jailConfig.js";
 import { handleEconomyCommand, ECONOMY_COMMAND_NAMES } from "./economyCommands.js";
 import { getDataDir } from "./dataDir.js";
@@ -21,7 +21,8 @@ function ensureDataStorage() {
   const customCommandsPath = join(dir, "custom-commands.json");
   const deletedLogPath = join(dir, "deleted-log-config.json");
   const jailConfigPath = join(dir, "jail-config.json");
-  if (!existsSync(customCommandsPath)) writeFileSync(customCommandsPath, "[]", "utf8");
+  if (!existsSync(customCommandsPath)) writeFileSync(customCommandsPath, "{}", "utf8");
+  migrateCustomCommands();
   if (!existsSync(deletedLogPath)) writeFileSync(deletedLogPath, JSON.stringify({ channels: [] }, null, 2), "utf8");
   if (!existsSync(jailConfigPath)) writeFileSync(jailConfigPath, "{}", "utf8");
 }
@@ -203,7 +204,7 @@ client.once("clientReady", async () => {
   }
   ensureDataStorage();
   const dataDir = getDataDir();
-  const customCount = listCustomCommands().length;
+  const customCount = totalCustomCommands();
   const logChannelCount = getAllLogChannels().length;
   console.log(`Data directory: ${dataDir} (deleted-log channels: ${logChannelCount}, custom commands: ${customCount}). On Railway, set DATA_DIR to a volume path (e.g. /data) so this data persists across restarts.`);
   initScheduler(client);
@@ -259,7 +260,7 @@ client.on("messageCreate", async (message) => {
       { name: "💰 Economy", value: "`!bal` — Balance · `!d` — Daily · `!w` — Work · `!j` — Jobs · `!ap` — Apply\n`!q` — Quest · `!cf` — Coinflip · `!sl` — Slots · `!bj` — Blackjack\n`!r` — Rob · `!give` — Send coins · `!lb` — Leaderboard\n`!dep`/`!with` — Bank · `!s` — Shop · `!b` — Buy · `!inv` — Inventory · `!st` — Stats\nType `!eco` for detailed help", inline: false },
       { name: "⚖️ Jail", value: "`!jail @user` — Remove roles & assign criminal role\n`!unjail @user` — Restore roles & release", inline: false },
     ];
-    const customCmds = listCustomCommands();
+    const customCmds = listCustomCommands(message.guild?.id);
     if (customCmds.length > 0) {
       const cmdList = customCmds.map((c) => `\`!${c.name}\``).join("  ");
       fields.push({ name: "⚡ Custom Commands", value: cmdList, inline: false });
@@ -328,7 +329,7 @@ client.on("messageCreate", async (message) => {
     return;
   }
 
-  const cmd = getCustomCommand(commandName);
+  const cmd = getCustomCommand(commandName, message.guild?.id);
   if (!cmd) return;
   const author = message.author;
   const mentionedUsers = message.mentions?.users ? Array.from(message.mentions.users.values()) : [];
