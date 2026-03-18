@@ -959,7 +959,7 @@
       const questsList = document.getElementById("ecoQuests");
       if (!guildSelect) return;
       try {
-        const infoR = await fetch("/api/economy/info", { headers: authHeaders() });
+        const infoR = await fetch("/api/economy/info", fetchOpts({ headers: headers() }));
         const info = await infoR.json();
         jobsList.innerHTML = "";
         for (const j of info.jobs) {
@@ -982,9 +982,10 @@
       } catch (_) {}
       if (guildSelect.options.length <= 1) {
         try {
-          const r = await fetch("/api/channels", { headers: authHeaders() });
+          const r = await fetch("/api/channels", fetchOpts({ headers: headers() }));
           const data = await r.json();
-          for (const g of data) {
+          const guilds = Array.isArray(data) ? data : (data.guilds || []);
+          for (const g of guilds) {
             const o = document.createElement("option");
             o.value = g.id; o.textContent = g.name;
             guildSelect.appendChild(o);
@@ -996,7 +997,7 @@
         lbList.innerHTML = "";
         if (!gid) { lbList.innerHTML = "<li class=\"muted\">Select a server to see the leaderboard.</li>"; return; }
         try {
-          const r = await fetch(`/api/economy/leaderboard/${gid}`, { headers: authHeaders() });
+          const r = await fetch(`/api/economy/leaderboard/${gid}`, fetchOpts({ headers: headers() }));
           const data = await r.json();
           if (!data.leaderboard || data.leaderboard.length === 0) {
             lbList.innerHTML = "<li class=\"muted\">No one has earned coins yet.</li>";
@@ -1020,7 +1021,7 @@
       if (!listEl) return;
       listEl.innerHTML = "<li class=\"muted\">Loading...</li>";
       try {
-        const r = await fetch("/api/jail-config", { headers: authHeaders() });
+        const r = await fetch("/api/jail-config", fetchOpts({ headers: headers() }));
         const data = await r.json();
         if (!data.configs || data.configs.length === 0) {
           listEl.innerHTML = "<li class=\"muted\">No servers configured yet. Run <code>/jail-setup</code> in Discord.</li>";
@@ -1044,7 +1045,7 @@
             btn.style.marginLeft = "0.5rem";
             btn.onclick = async () => {
               if (!confirm("Remove jail config for this server?")) return;
-              await fetch(`/api/jail-config/${c.guildId}`, { method: "DELETE", headers: authHeaders() });
+              await fetch(`/api/jail-config/${c.guildId}`, fetchOpts({ method: "DELETE", headers: headers() }));
               loadJailConfigPage();
             };
             li.appendChild(btn);
