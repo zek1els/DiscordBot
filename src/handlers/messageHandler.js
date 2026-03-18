@@ -13,6 +13,11 @@ import { createPoll } from "../polls.js";
 import { startGiveaway, rerollGiveaway } from "../giveaways.js";
 import { openTicket, closeTicket } from "../ticketSystem.js";
 import { getSnipe, getEditSnipe } from "../snipe.js";
+import { parseTime } from "../reminders.js";
+import { sendModLog } from "../modLog.js";
+
+// Timed jail auto-unjail timers
+const jailTimers = new Map();
 
 // Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
 const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
@@ -142,7 +147,7 @@ export async function handleMessage(message) {
     const fields = [
       { name: "\u200b\n📖  General", value: "> `!help` `!ping` `!uptime` `!avatar` `!serverinfo` `!userinfo`", inline: false },
       { name: "💰  Economy", value: "> `!bal` `!d` `!w` `!j` `!ap` `!q`\n> `!cf` `!sl` `!bj` `!r` `!give` `!lb`\n> `!dep` `!with` `!s` `!b` `!inv` `!st`\n> *Type* `!eco` *for full details*", inline: true },
-      { name: "⚖️  Moderation", value: "> `!jail @user` `!unjail @user`\n> `!ticket` `!ticket close`", inline: true },
+      { name: "⚖️  Moderation", value: "> `!jail @user [time]` `!unjail @user`\n> `!ticket` `!ticket close`\n> `/confess` `/modlog-setup`", inline: true },
       { name: "🎵  Music", value: "> `!play` `!skip` `!stop` `!queue`\n> `!np` `!pause` `!resume` `!loop`\n> `!volume` `!shuffle` `!remove`", inline: true },
       { name: "🎲  Fun", value: "> `!8ball` `!dice` `!rps` `!choose`\n> `!ship` `!rate` `!mock` `!roast`\n> `!hack` `!pp` `!iq` `!howgay`", inline: true },
       { name: "🔧  Utility", value: "> `!remind` `!reminders` `!poll`\n> `!giveaway` `!afk` `!snipe` `!esnipe`\n> `!banner` `!roleinfo` `!emojis`", inline: true },
@@ -297,7 +302,17 @@ export async function handleMessage(message) {
     }
     const mentionedUsers = message.mentions?.users ? Array.from(message.mentions.users.values()) : [];
     const target = mentionedUsers[0];
-    if (!target) return message.channel.send({ content: `Usage: \`!${commandName} @user\`` }).catch(() => {});
+    if (!target) return message.channel.send({ content: `Usage: \`!${commandName} @user [duration]\`\nExample: \`!jail @user 30m\`` }).catch(() => {});
+
+    // Parse optional duration for timed jail (e.g. !jail @user 30m)
+    const durationArg = rest.replace(/<@!?\d+>/g, "").trim().split(/\s+/)[0];
+    let durationMs = null;
+    let durationLabel = null;
+    if (commandName === "jail" && durationArg) {
+      durationMs = parseTime(durationArg);
+      if (durationMs) durationLabel = formatMs(durationMs);
+    }
+
     try {
       const member = await message.guild.members.fetch(target.id);
       if (commandName === "jail") {
@@ -308,9 +323,52 @@ export async function handleMessage(message) {
         const rolesToRemove = currentRoleIds.filter((id) => id !== cfg.criminalRoleId);
         if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
         if (cfg.criminalRoleId) await member.roles.add(cfg.criminalRoleId);
-        await message.channel.send({ content: `<@${target.id}> has been jailed.` });
+
+        const timeMsg = durationLabel ? ` for **${durationLabel}**` : "";
+        await message.channel.send({
+          embeds: [{
+            color: 0xed4245,
+            description: `🔒 <@${target.id}> has been jailed${timeMsg}.`,
+          }],
+        });
         auditLog(guildId, "jail", { userId: target.id, moderatorId: message.author.id });
+        sendModLog(_client, guildId, "jail", {
+          userId: target.id,
+          moderatorId: message.author.id,
+          duration: durationLabel || "Permanent",
+        });
+
+        // Set auto-unjail timer if duration specified
+        if (durationMs) {
+          const timerKey = `${guildId}:${target.id}`;
+          // Clear existing timer if any
+          if (jailTimers.has(timerKey)) clearTimeout(jailTimers.get(timerKey));
+          const timer = setTimeout(async () => {
+            jailTimers.delete(timerKey);
+            try {
+              const m = await message.guild.members.fetch(target.id);
+              if (cfg.criminalRoleId) await m.roles.remove(cfg.criminalRoleId);
+              const saved = popJailedRoles(guildId, target.id);
+              if (saved && saved.length > 0) await m.roles.add(saved);
+              else if (cfg.memberRoleId) await m.roles.add(cfg.memberRoleId);
+              message.channel.send({
+                embeds: [{ color: 0x57f287, description: `🔓 <@${target.id}> has been automatically unjailed (${durationLabel} elapsed).` }],
+              }).catch(() => {});
+              auditLog(guildId, "unjail", { userId: target.id, moderatorId: "auto-timer" });
+              sendModLog(_client, guildId, "unjail", { userId: target.id, moderatorId: "auto-timer", reason: `Auto-unjail after ${durationLabel}` });
+            } catch (e) {
+              console.error("Auto-unjail failed:", e.message);
+            }
+          }, durationMs);
+          jailTimers.set(timerKey, timer);
+        }
       } else {
+        // Clear any pending auto-unjail timer
+        const timerKey = `${guildId}:${target.id}`;
+        if (jailTimers.has(timerKey)) {
+          clearTimeout(jailTimers.get(timerKey));
+          jailTimers.delete(timerKey);
+        }
         if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId);
         const savedRoles = popJailedRoles(message.guild.id, target.id);
         if (savedRoles && savedRoles.length > 0) {
@@ -318,8 +376,11 @@ export async function handleMessage(message) {
         } else if (cfg.memberRoleId) {
           await member.roles.add(cfg.memberRoleId);
         }
-        await message.channel.send({ content: `<@${target.id}> has been released from jail.` });
+        await message.channel.send({
+          embeds: [{ color: 0x57f287, description: `🔓 <@${target.id}> has been released from jail.` }],
+        });
         auditLog(guildId, "unjail", { userId: target.id, moderatorId: message.author.id });
+        sendModLog(_client, guildId, "unjail", { userId: target.id, moderatorId: message.author.id });
       }
     } catch (e) {
       console.error("Jail role update failed:", e);

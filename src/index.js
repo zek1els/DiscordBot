@@ -17,6 +17,7 @@ import { initGiveaways } from "./giveaways.js";
 import { handleMemberJoin, handleMemberLeave } from "./welcomeConfig.js";
 import { handleStarboardReaction } from "./starboard.js";
 import { recordDeleted, recordEdited } from "./snipe.js";
+import { sendModLog } from "./modLog.js";
 
 config();
 
@@ -46,6 +47,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildModeration,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -112,10 +114,43 @@ client.on("guildMemberAdd", async (member) => {
   }
   // Welcome message
   handleMemberJoin(member);
+  // Mod log
+  sendModLog(client, member.guild.id, "join", { userId: member.id, extra: `Account created: <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` });
 });
 
 client.on("guildMemberRemove", (member) => {
   handleMemberLeave(member);
+  sendModLog(client, member.guild.id, "leave", { userId: member.id });
+});
+
+client.on("guildBanAdd", (ban) => {
+  sendModLog(client, ban.guild.id, "ban", { userId: ban.user.id, reason: ban.reason || "No reason provided" });
+});
+
+client.on("guildBanRemove", (ban) => {
+  sendModLog(client, ban.guild.id, "unban", { userId: ban.user.id });
+});
+
+client.on("guildMemberUpdate", (oldMember, newMember) => {
+  // Nickname change
+  if (oldMember.nickname !== newMember.nickname) {
+    sendModLog(client, newMember.guild.id, "nick_change", {
+      userId: newMember.id,
+      oldNick: oldMember.nickname || oldMember.user.username,
+      newNick: newMember.nickname || newMember.user.username,
+    });
+  }
+  // Role changes
+  const addedRoles = newMember.roles.cache.filter((r) => !oldMember.roles.cache.has(r.id));
+  const removedRoles = oldMember.roles.cache.filter((r) => !newMember.roles.cache.has(r.id));
+  for (const [, role] of addedRoles) {
+    if (role.id === newMember.guild.id) continue;
+    sendModLog(client, newMember.guild.id, "role_add", { userId: newMember.id, role: role.name });
+  }
+  for (const [, role] of removedRoles) {
+    if (role.id === newMember.guild.id) continue;
+    sendModLog(client, newMember.guild.id, "role_remove", { userId: newMember.id, role: role.name });
+  }
 });
 
 client.on("messageCreate", (message) => handleMessage(message));
@@ -123,14 +158,44 @@ client.on("messageCreate", (message) => handleMessage(message));
 client.on("messageDelete", (message) => {
   recordDeleted(message); // snipe
   handleMessageDelete(message, client); // deleted log
+  // Mod log
+  if (message.guildId && message.author && !message.author.bot) {
+    sendModLog(client, message.guildId, "message_delete", {
+      userId: message.author.id,
+      channel: `<#${message.channelId}>`,
+      content: message.content || "*(embed/attachment)*",
+    });
+  }
 });
 
 client.on("messageUpdate", (oldMessage, newMessage) => {
   recordEdited(oldMessage, newMessage); // edit snipe
   handleMessageUpdate(oldMessage, newMessage, client); // edit log
+  // Mod log
+  if (newMessage.guildId && newMessage.author && !newMessage.author.bot && oldMessage.content !== newMessage.content) {
+    sendModLog(client, newMessage.guildId, "message_edit", {
+      userId: newMessage.author.id,
+      channel: `<#${newMessage.channelId}>`,
+      oldContent: oldMessage.content || "*(empty)*",
+      newContent: newMessage.content || "*(empty)*",
+    });
+  }
 });
 
-client.on("voiceStateUpdate", (oldState, newState) => handleVoiceStateUpdate(oldState, newState));
+client.on("voiceStateUpdate", (oldState, newState) => {
+  handleVoiceStateUpdate(oldState, newState);
+  // Mod log voice events
+  const guildId = newState.guild.id;
+  const userId = newState.member?.id;
+  if (!userId) return;
+  if (!oldState.channelId && newState.channelId) {
+    sendModLog(client, guildId, "voice_join", { userId, channel: `<#${newState.channelId}>` });
+  } else if (oldState.channelId && !newState.channelId) {
+    sendModLog(client, guildId, "voice_leave", { userId, channel: `<#${oldState.channelId}>` });
+  } else if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
+    sendModLog(client, guildId, "voice_move", { userId, extra: `<#${oldState.channelId}> → <#${newState.channelId}>` });
+  }
+});
 client.on("interactionCreate", (interaction) => handleInteraction(interaction));
 
 // Starboard — react to star reactions

@@ -10,6 +10,8 @@ import { log as auditLog } from "../auditLog.js";
 import { setStarboardConfig, removeStarboardConfig, getStarboardConfig } from "../starboard.js";
 import { setWelcomeMessage, setLeaveMessage, disableWelcome, disableLeave } from "../welcomeConfig.js";
 import { setTicketConfig } from "../ticketSystem.js";
+import { setConfessionChannel, disableConfessions, postConfession } from "../confessions.js";
+import { setModLogChannel, disableModLog } from "../modLog.js";
 
 export async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand()) return;
@@ -477,6 +479,62 @@ export async function handleInteraction(interaction) {
       content: `🎫 Ticket system configured!\n**Category:** ${category.name}\n**Support role:** ${supportRole?.name || "None"}\n**Log channel:** ${logChannel ? `#${logChannel.name}` : "None"}\n\nUsers can type \`!ticket [reason]\` to open a ticket.`,
       ephemeral: false,
     });
+  }
+
+  // --- /confess-setup ---
+  if (interaction.commandName === "confess-setup") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+    }
+    const channel = interaction.options.getChannel("channel");
+    setConfessionChannel(interaction.guildId, channel.id);
+    return interaction.reply({ content: `🤫 Confessions will be posted to ${channel}. Members can use \`/confess\`.`, ephemeral: false });
+  }
+
+  // --- /confess-off ---
+  if (interaction.commandName === "confess-off") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+    }
+    disableConfessions(interaction.guildId);
+    return interaction.reply({ content: "Confessions disabled.", ephemeral: false });
+  }
+
+  // --- /confess ---
+  if (interaction.commandName === "confess") {
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    const text = interaction.options.getString("message");
+    if (!text || text.trim().length === 0) {
+      return interaction.reply({ content: "Your confession can't be empty.", ephemeral: true });
+    }
+    if (text.length > 2000) {
+      return interaction.reply({ content: "Confession is too long (max 2000 characters).", ephemeral: true });
+    }
+    const result = await postConfession(interaction.client, guildId, text);
+    if (!result.ok) {
+      return interaction.reply({ content: `❌ ${result.error}`, ephemeral: true });
+    }
+    return interaction.reply({ content: "✅ Your confession has been posted anonymously.", ephemeral: true });
+  }
+
+  // --- /modlog-setup ---
+  if (interaction.commandName === "modlog-setup") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+    }
+    const channel = interaction.options.getChannel("channel");
+    setModLogChannel(interaction.guildId, channel.id);
+    return interaction.reply({ content: `📋 Mod logs will be sent to ${channel}.`, ephemeral: false });
+  }
+
+  // --- /modlog-off ---
+  if (interaction.commandName === "modlog-off") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+    }
+    disableModLog(interaction.guildId);
+    return interaction.reply({ content: "Mod logging disabled.", ephemeral: false });
   }
 
   if (interaction.commandName !== "send") return;

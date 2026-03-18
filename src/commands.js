@@ -263,6 +263,40 @@ export const ticketSetupCommand = {
   ],
 };
 
+export const confessSetupCommand = {
+  name: "confess-setup",
+  description: "Set the channel for anonymous confessions",
+  options: [
+    { name: "channel", type: 7, description: "Channel for confessions", required: true },
+  ],
+};
+
+export const confessOffCommand = {
+  name: "confess-off",
+  description: "Disable the confession system",
+};
+
+export const confessCommand = {
+  name: "confess",
+  description: "Submit an anonymous confession",
+  options: [
+    { name: "message", type: 3, description: "Your anonymous confession", required: true },
+  ],
+};
+
+export const modlogSetupCommand = {
+  name: "modlog-setup",
+  description: "Set the channel for mod action logs",
+  options: [
+    { name: "channel", type: 7, description: "Channel for mod logs", required: true },
+  ],
+};
+
+export const modlogOffCommand = {
+  name: "modlog-off",
+  description: "Disable mod logging",
+};
+
 export const slashCommands = [
   sendCommand, scheduleCommand, messageCommand, logDeletesCommand,
   jailSetupCommand, jailAssignAllCommand,
@@ -270,4 +304,6 @@ export const slashCommands = [
   warnCommand, warningsCommand, clearWarningsCommand,
   purgeCommand,
   starboardCommand, welcomeCommand, leaveCommand, ticketSetupCommand,
+  confessSetupCommand, confessOffCommand, confessCommand,
+  modlogSetupCommand, modlogOffCommand,
 ];
