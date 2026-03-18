@@ -1590,12 +1590,9 @@
       const redirectRes = await fetch("/api/auth/redirect-uri");
       const redirectData = await redirectRes.json().catch(() => ({}));
       const hintEl = document.getElementById("redirectUriHint");
-      if (hintEl && redirectData.redirectUri) {
-        hintEl.textContent = "In Discord Developer Portal \u2192 OAuth2 \u2192 Redirects, add this exact URL:";
-        hintEl.style.display = "block";
-        const link = document.getElementById("redirectUriLink");
-        if (link) { link.href = redirectData.redirectUri; link.textContent = redirectData.redirectUri; link.style.display = "block"; }
-      } else if (hintEl) hintEl.style.display = "none";
+      if (hintEl) hintEl.style.display = "none";
+      const link = document.getElementById("redirectUriLink");
+      if (link) link.style.display = "none";
       const params = new URLSearchParams(location.search);
       const err = params.get("error");
       const linked = params.get("linked");
