@@ -1,6 +1,10 @@
 import { randomInt } from "crypto";
-import nodemailer from "nodemailer";
 
+// Resend (HTTP API) — preferred, works on Railway/cloud platforms
+const RESEND_API_KEY = process.env.RESEND_API_KEY?.trim();
+const RESEND_FROM = process.env.RESEND_FROM?.trim() || "onboarding@resend.dev";
+
+// Legacy SMTP fallback (kept for backwards compat)
 const SMTP_HOST = process.env.SMTP_HOST?.trim();
 const SMTP_PORT = Number(process.env.SMTP_PORT) || 587;
 const SMTP_USER = process.env.SMTP_USER?.trim();
@@ -13,18 +17,9 @@ const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 /** @type {Map<string, { code: string, expiresAt: number }>} */
 const pendingCodes = new Map();
 
+/** Returns true if any email provider is configured (Resend or SMTP). */
 export function isSmtpConfigured() {
-  return !!(SMTP_HOST && SMTP_USER && SMTP_PASS);
-}
-
-function getTransporter() {
-  if (!isSmtpConfigured()) return null;
-  return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+  return !!(RESEND_API_KEY || (SMTP_HOST && SMTP_USER && SMTP_PASS));
 }
 
 function generateCode() {
@@ -33,39 +28,85 @@ function generateCode() {
 }
 
 /**
+ * Send email via Resend HTTP API.
+ * @returns {Promise<boolean>}
+ */
+async function sendViaResend(to, subject, text, html) {
+  try {
+    console.log(`Sending email to ${to} via Resend (from: ${RESEND_FROM})`);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: RESEND_FROM, to: [to], subject, text, html }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      console.error(`Resend API error (${res.status}):`, err);
+      return false;
+    }
+    const data = await res.json().catch(() => ({}));
+    console.log(`Email sent via Resend to ${to}, id: ${data.id || "?"}`);
+    return true;
+  } catch (e) {
+    console.error(`Resend send failed for ${to}:`, e.message);
+    return false;
+  }
+}
+
+/**
+ * Send email via SMTP (nodemailer) — fallback.
+ * @returns {Promise<boolean>}
+ */
+async function sendViaSmtp(to, subject, text, html) {
+  try {
+    // Dynamic import so nodemailer isn't required when using Resend
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.default.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    console.log(`Sending email to ${to} via SMTP ${SMTP_HOST}:${SMTP_PORT}`);
+    await transporter.sendMail({ from: SMTP_FROM, to, subject, text, html });
+    console.log(`Email sent via SMTP to ${to}`);
+    return true;
+  } catch (e) {
+    console.error(`SMTP send failed for ${to}:`, e.message, e.code || "", e.response || "");
+    return false;
+  }
+}
+
+/**
  * Generate and send a verification code to the given email.
  * @param {string} email
  * @returns {Promise<boolean>} true if sent successfully
  */
 export async function sendVerificationCode(email) {
-  const transporter = getTransporter();
-  if (!transporter) return false;
+  if (!isSmtpConfigured()) return false;
 
   const code = generateCode();
   pendingCodes.set(email.toLowerCase(), { code, expiresAt: Date.now() + CODE_EXPIRY_MS });
 
-  try {
-    console.log(`Attempting to send verification email to ${email} via ${SMTP_HOST}:${SMTP_PORT} (user: ${SMTP_USER})`);
-    await transporter.sendMail({
-      from: SMTP_FROM,
-      to: email,
-      subject: "Your verification code",
-      text: `Your verification code is: ${code}\n\nThis code expires in 10 minutes.`,
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 420px; margin: 0 auto; padding: 32px;">
-          <h2 style="margin: 0 0 8px;">Verify your email</h2>
-          <p style="color: #555; margin: 0 0 24px;">Enter this code to complete your registration:</p>
-          <div style="background: #f0f0f0; border-radius: 8px; padding: 20px; text-align: center; font-size: 32px; letter-spacing: 8px; font-weight: 700; font-family: monospace;">${code}</div>
-          <p style="color: #888; font-size: 13px; margin-top: 24px;">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
-        </div>
-      `,
-    });
-    console.log(`Verification code sent to ${email}`);
-    return true;
-  } catch (e) {
-    console.error(`Failed to send verification email to ${email}:`, e.message, e.code || "", e.response || "");
-    return false;
+  const subject = "Your verification code";
+  const text = `Your verification code is: ${code}\n\nThis code expires in 10 minutes.`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 420px; margin: 0 auto; padding: 32px;">
+      <h2 style="margin: 0 0 8px;">Verify your email</h2>
+      <p style="color: #555; margin: 0 0 24px;">Enter this code to complete your registration:</p>
+      <div style="background: #f0f0f0; border-radius: 8px; padding: 20px; text-align: center; font-size: 32px; letter-spacing: 8px; font-weight: 700; font-family: monospace;">${code}</div>
+      <p style="color: #888; font-size: 13px; margin-top: 24px;">This code expires in 10 minutes. If you didn't request this, ignore this email.</p>
+    </div>
+  `;
+
+  // Prefer Resend, fall back to SMTP
+  if (RESEND_API_KEY) {
+    return sendViaResend(email, subject, text, html);
   }
+  return sendViaSmtp(email, subject, text, html);
 }
 
 /**
