@@ -232,19 +232,37 @@ export class MusicQueue {
     const song = this.songs.shift();
     this.current = song;
     try {
-      // Get direct audio URL via yt-dlp, then stream it through ffmpeg
-      const audioUrl = await getAudioUrl(song.url);
+      // Pipe yt-dlp → ffmpeg → discord (high-quality Opus passthrough)
+      const ytdlpProc = spawn("yt-dlp", [
+        "-f", "bestaudio",
+        "-o", "-",
+        "--no-playlist",
+        "--no-warnings",
+        song.url,
+      ], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+
       const ffmpeg = spawn(FFMPEG, [
-        "-reconnect", "1",
-        "-reconnect_streamed", "1",
-        "-reconnect_delay_max", "5",
-        "-i", audioUrl,
-        "-f", "s16le",
+        "-i", "pipe:0",
+        "-c:a", "libopus",
+        "-b:a", "128k",
         "-ar", "48000",
         "-ac", "2",
+        "-f", "ogg",
         "-loglevel", "error",
         "pipe:1",
-      ], { stdio: ["ignore", "pipe", "pipe"] });
+      ], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+
+      // Pipe yt-dlp stdout → ffmpeg stdin
+      ytdlpProc.stdout.pipe(ffmpeg.stdin);
+
+      ytdlpProc.stderr.on("data", (d) => {
+        const msg = d.toString().trim();
+        if (msg) console.error("yt-dlp stderr:", msg);
+      });
+
+      ytdlpProc.on("error", (err) => {
+        console.error("yt-dlp process error:", err.message);
+      });
 
       ffmpeg.stderr.on("data", (d) => {
         const msg = d.toString().trim();
@@ -259,8 +277,12 @@ export class MusicQueue {
         this.processQueue();
       });
 
+      // Clean up both processes when one ends
+      ytdlpProc.on("close", () => { try { ffmpeg.stdin.end(); } catch {} });
+      ffmpeg.on("close", () => { try { ytdlpProc.kill(); } catch {} });
+
       const resource = createAudioResource(ffmpeg.stdout, {
-        inputType: StreamType.Raw,
+        inputType: StreamType.OggOpus,
         inlineVolume: true,
       });
       resource.volume?.setVolume(this.volume / 100);
