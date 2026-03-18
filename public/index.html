@@ -171,14 +171,18 @@
       background: var(--accent-soft); border-radius: var(--radius);
       border-left: 3px solid var(--accent); line-height: 1.5;
     }
-    /* Landing */
-    .landing-wrap { min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+    /* Landing — breaks out of body max-width */
+    .landing-wrap {
+      min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: relative;
+      width: 100vw; margin-left: calc(-50vw + 50%); padding: 0 clamp(1.5rem, 5vw, 4rem);
+    }
     .landing-wrap::before {
-      content: ""; position: absolute; top: -40%; left: 50%; transform: translateX(-50%);
-      width: 800px; height: 800px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(88,101,242,0.12) 0%, transparent 70%);
+      content: ""; position: absolute; top: -30%; left: 50%; transform: translateX(-50%);
+      width: 1000px; height: 1000px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(88,101,242,0.1) 0%, transparent 70%);
       pointer-events: none; z-index: 0;
     }
+    .landing-inner { max-width: 1100px; margin: 0 auto; width: 100%; }
     .landing-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 0; position: relative; z-index: 1; }
     .landing-logo { font-size: 1.4rem; font-weight: 800; color: var(--text); text-decoration: none; letter-spacing: -0.03em; display: flex; align-items: center; gap: 0.5rem; }
     .landing-auth { display: flex; gap: 0.5rem; align-items: center; }
@@ -194,8 +198,8 @@
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .landing-hero .subtitle { font-size: 1.15rem; color: var(--text-muted); max-width: 520px; margin: 0 auto 2.5rem; line-height: 1.65; }
-    .landing-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-bottom: 3.5rem; }
+    .landing-hero .subtitle { font-size: 1.15rem; color: var(--text-muted); max-width: 560px; margin: 0 auto 2.5rem; line-height: 1.65; }
+    .landing-buttons { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; margin-bottom: 4rem; }
     .landing-cta {
       display: inline-flex; align-items: center; gap: 0.5rem;
       padding: 0.9rem 2rem; font-size: 1rem; font-weight: 650;
@@ -213,16 +217,18 @@
       box-shadow: 0 4px 16px rgba(88,101,242,0.3);
     }
     .landing-cta.cta-discord:hover { background: #4752c4; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(88,101,242,0.4); }
-    .landing-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; max-width: 720px; margin: 0 auto; }
+    .landing-features { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; width: 100%; }
+    @media (max-width: 800px) { .landing-features { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .landing-features { grid-template-columns: 1fr; } }
     .feature-card {
-      padding: 1.5rem; background: var(--card-bg);
+      padding: 1.75rem; background: var(--card-bg);
       border: 1px solid var(--card-border); border-radius: var(--radius-lg);
       text-align: left; transition: all 0.25s;
     }
     .feature-card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 24px var(--accent-glow); }
-    .feature-card .feature-icon { font-size: 1.6rem; margin-bottom: 0.6rem; display: block; }
-    .feature-card .feature-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.3rem; color: var(--text); }
-    .feature-card .feature-desc { font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+    .feature-card .feature-icon { font-size: 1.75rem; margin-bottom: 0.75rem; display: block; }
+    .feature-card .feature-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.35rem; color: var(--text); }
+    .feature-card .feature-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.55; }
     @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
     .landing-glow-icon { font-size: 3.5rem; display: block; margin: 0 auto 1.5rem; animation: float 4s ease-in-out infinite; filter: drop-shadow(0 4px 20px rgba(88,101,242,0.4)); }
     /* Auth pages */
@@ -252,47 +258,49 @@
 </head>
 <body>
   <div id="landingPanel" class="landing-wrap">
-    <header class="landing-header">
-      <a href="#" id="landingLogo" class="landing-logo">Kova</a>
-      <div class="landing-auth">
-        <a href="#" id="landingLoginBtn" class="btn-outline">Log in</a>
-        <a href="#" id="landingRegisterBtn" class="btn-primary">Register</a>
-      </div>
-    </header>
-    <main class="landing-hero">
-      <span class="landing-glow-icon" aria-hidden="true">&#9889;</span>
-      <h1>The all-in-one bot<br>for your <span class="gradient-text">Discord</span></h1>
-      <p class="subtitle">Scheduled messages, a full economy, moderation tools, and custom commands — managed from a clean web panel.</p>
-      <div class="landing-buttons">
-        <a href="/invite" class="landing-cta cta-discord">
-          <svg width="20" height="15" viewBox="0 0 71 55" fill="none"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 5 59.6 59.6 0 00.4 45.3a.3.3 0 00.1.2 58.7 58.7 0 0017.7 9 .2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.6 38.6 0 01-5.5-2.6.2.2 0 01-.02-.4c.4-.3.7-.6 1.1-.9a.2.2 0 01.2 0 41.9 41.9 0 0035.6 0 .2.2 0 01.2 0c.4.3.8.7 1.1 1a.2.2 0 01-.01.3 36.2 36.2 0 01-5.5 2.6.2.2 0 00-.12.3c1 2 2.3 4 3.6 5.9a.2.2 0 00.3.1 58.5 58.5 0 0017.7-9 .3.3 0 00.1-.2c1.5-15.3-2.4-28.6-10.3-40.4zM23.7 37.1c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1c3.6 0 6.5 3.2 6.4 7.1 0 3.9-2.8 7.1-6.4 7.1zm23.7 0c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1c3.6 0 6.5 3.2 6.4 7.1 0 3.9-2.8 7.1-6.4 7.1z" fill="white"/></svg>
-          Add to Discord
-        </a>
-        <a href="#" id="landingGetStartedBtn" class="landing-cta cta-primary">Get started &#8594;</a>
-      </div>
-      <div class="landing-features">
-        <div class="feature-card">
-          <span class="feature-icon">&#128197;</span>
-          <div class="feature-title">Scheduled Messages</div>
-          <div class="feature-desc">Send messages on a schedule — daily, weekly, or at custom intervals.</div>
+    <div class="landing-inner">
+      <header class="landing-header">
+        <a href="#" id="landingLogo" class="landing-logo">Kova</a>
+        <div class="landing-auth">
+          <a href="#" id="landingLoginBtn" class="btn-outline">Log in</a>
+          <a href="#" id="landingRegisterBtn" class="btn-primary">Register</a>
         </div>
-        <div class="feature-card">
-          <span class="feature-icon">&#128176;</span>
-          <div class="feature-title">Economy System</div>
-          <div class="feature-desc">Jobs, quests, gambling, shops, and a full leaderboard for your server.</div>
+      </header>
+      <main class="landing-hero">
+        <span class="landing-glow-icon" aria-hidden="true">&#9889;</span>
+        <h1>The all-in-one bot<br>for your <span class="gradient-text">Discord</span></h1>
+        <p class="subtitle">Scheduled messages, a full economy, moderation tools, and custom commands — managed from a clean web panel.</p>
+        <div class="landing-buttons">
+          <a href="/invite" class="landing-cta cta-discord">
+            <svg width="20" height="15" viewBox="0 0 71 55" fill="none"><path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 5 59.6 59.6 0 00.4 45.3a.3.3 0 00.1.2 58.7 58.7 0 0017.7 9 .2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.6 38.6 0 01-5.5-2.6.2.2 0 01-.02-.4c.4-.3.7-.6 1.1-.9a.2.2 0 01.2 0 41.9 41.9 0 0035.6 0 .2.2 0 01.2 0c.4.3.8.7 1.1 1a.2.2 0 01-.01.3 36.2 36.2 0 01-5.5 2.6.2.2 0 00-.12.3c1 2 2.3 4 3.6 5.9a.2.2 0 00.3.1 58.5 58.5 0 0017.7-9 .3.3 0 00.1-.2c1.5-15.3-2.4-28.6-10.3-40.4zM23.7 37.1c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1c3.6 0 6.5 3.2 6.4 7.1 0 3.9-2.8 7.1-6.4 7.1zm23.7 0c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1c3.6 0 6.5 3.2 6.4 7.1 0 3.9-2.8 7.1-6.4 7.1z" fill="white"/></svg>
+            Add to Discord
+          </a>
+          <a href="#" id="landingGetStartedBtn" class="landing-cta cta-primary">Get started &#8594;</a>
         </div>
-        <div class="feature-card">
-          <span class="feature-icon">&#9878;&#65039;</span>
-          <div class="feature-title">Moderation</div>
-          <div class="feature-desc">Jail system with role management — lock down troublemakers instantly.</div>
+        <div class="landing-features">
+          <div class="feature-card">
+            <span class="feature-icon">&#128197;</span>
+            <div class="feature-title">Scheduled Messages</div>
+            <div class="feature-desc">Send messages on a schedule — daily, weekly, or at custom intervals.</div>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon">&#128176;</span>
+            <div class="feature-title">Economy System</div>
+            <div class="feature-desc">Jobs, quests, gambling, shops, and a full leaderboard for your server.</div>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon">&#9878;&#65039;</span>
+            <div class="feature-title">Moderation</div>
+            <div class="feature-desc">Jail system with role management — lock down troublemakers instantly.</div>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon">&#9889;</span>
+            <div class="feature-title">Custom Commands</div>
+            <div class="feature-desc">Create per-server commands with dynamic placeholders and templates.</div>
+          </div>
         </div>
-        <div class="feature-card">
-          <span class="feature-icon">&#9889;</span>
-          <div class="feature-title">Custom Commands</div>
-          <div class="feature-desc">Create per-server commands with dynamic placeholders and templates.</div>
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
   </div>
 
   <div id="loginPage" class="auth-page" style="display: none;">
