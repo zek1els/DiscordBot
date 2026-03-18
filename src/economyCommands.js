@@ -387,24 +387,18 @@ export async function handleEconomyCommand(message, commandName, args) {
 
     case "economy":
     case "eco": {
-      return send(`**💰 Economy Commands**
-\`!balance\` / \`!bal\` — Check your balance
-\`!daily\` — Claim daily reward
-\`!deposit\` / \`!withdraw\` — Move money to/from bank
-\`!jobs\` — See available jobs
-\`!apply <job>\` — Take a job
-\`!work\` — Work your job for coins
-\`!quest\` — Get or check a quest
-\`!coinflip <amount>\` / \`!cf\` — 50/50 gamble
-\`!slots <amount>\` — Slot machine
-\`!blackjack <amount>\` / \`!bj\` — Blackjack
-\`!rob @user\` — Try to steal from someone
-\`!give @user <amount>\` — Send coins
-\`!leaderboard\` / \`!lb\` — Richest users
-\`!shop\` — Buy items
-\`!buy <item>\` — Purchase an item
-\`!inventory\` / \`!inv\` — Your items
-\`!stats\` — Your stats`), true;
+      await message.channel.send({ embeds: [{
+        color: 0xf59e0b,
+        title: "💰  Economy Commands",
+        fields: [
+          { name: "💵 Money", value: "`!balance` — Check balance\n`!daily` — Daily reward\n`!deposit` / `!withdraw` — Bank\n`!give @user <amt>` — Send coins", inline: true },
+          { name: "💼 Work", value: "`!jobs` — See all jobs\n`!apply <job>` — Take a job\n`!work` — Earn coins\n`!quest` — Quests", inline: true },
+          { name: "🎰 Gambling", value: "`!coinflip <amt>` — 50/50\n`!slots <amt>` — Slot machine\n`!blackjack <amt>` — Blackjack\n`!rob @user` — Steal coins", inline: true },
+          { name: "📦 Other", value: "`!shop` — Buy items · `!buy <item>` — Purchase\n`!inventory` — Your items · `!leaderboard` — Top players · `!stats` — Your stats", inline: false },
+        ],
+        footer: { text: "Amounts can be a number or \"all\"" },
+      }] }).catch(() => {});
+      return true;
     }
 
     default:

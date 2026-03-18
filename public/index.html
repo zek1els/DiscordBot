@@ -3,108 +3,202 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord Scheduler</title>
+  <title>Discord Bot Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; }
     :root {
-      --bg: #fff;
-      --text: #222;
-      --text-muted: #666;
-      --border: #ddd;
+      --bg: #f8f9fc;
+      --bg-surface: #fff;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
       --input-bg: #fff;
-      --card-bg: #f5f5f5;
+      --card-bg: #fff;
+      --card-border: #e5e7eb;
+      --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
       --btn-primary: #5865f2;
       --btn-primary-hover: #4752c4;
-      --btn-secondary: #4f545c;
-      --btn-secondary-hover: #686d73;
-      --success: #57f287;
-      --error: #ed4245;
+      --btn-secondary: #6b7280;
+      --btn-secondary-hover: #4b5563;
+      --btn-danger: #ef4444;
+      --btn-danger-hover: #dc2626;
+      --success: #10b981;
+      --error: #ef4444;
+      --accent: #5865f2;
+      --accent-soft: rgba(88,101,242,0.08);
+      --radius: 8px;
+      --radius-lg: 12px;
     }
     [data-theme="dark"] {
-      --bg: #1e1e1e;
-      --text: #e0e0e0;
-      --text-muted: #a0a0a0;
-      --border: #404040;
-      --input-bg: #2d2d2d;
-      --card-bg: #2d2d2d;
+      --bg: #111827;
+      --bg-surface: #1f2937;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --border: #374151;
+      --input-bg: #1f2937;
+      --card-bg: #1f2937;
+      --card-border: #374151;
+      --card-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
       --btn-primary: #5865f2;
       --btn-primary-hover: #6d7aff;
-      --btn-secondary: #4f545c;
-      --btn-secondary-hover: #5d6269;
-      --success: #57f287;
-      --error: #ed4245;
+      --btn-secondary: #4b5563;
+      --btn-secondary-hover: #6b7280;
+      --btn-danger: #ef4444;
+      --btn-danger-hover: #f87171;
+      --success: #34d399;
+      --error: #f87171;
+      --accent: #818cf8;
+      --accent-soft: rgba(129,140,248,0.1);
     }
     body {
-      font-family: system-ui, sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
       margin: 0 auto;
       padding: clamp(1rem, 4vw, 2rem);
-      max-width: min(960px, 92vw);
+      max-width: min(980px, 94vw);
       width: 100%;
       background: var(--bg);
       color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
     @media (min-width: 768px) {
-      body { max-width: min(960px, 88vw); }
-      h1 { font-size: 1.5rem; }
+      body { max-width: min(980px, 88vw); }
     }
     @media (min-width: 1200px) {
-      body { max-width: 960px; padding: 2rem; }
+      body { max-width: 980px; padding: 2rem 2.5rem; }
     }
-    h1 { font-size: 1.25rem; margin-bottom: 1rem; }
-    label { display: block; margin-top: 0.75rem; font-weight: 500; }
-    select, textarea, input[type="text"], input[type="number"] { width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; letter-spacing: -0.02em; }
+    h2 { font-size: 1.1rem; font-weight: 650; margin-bottom: 0.5rem; letter-spacing: -0.01em; }
+    h3 { font-size: 0.95rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+    label { display: block; margin-top: 0.75rem; font-weight: 500; font-size: 0.875rem; color: var(--text); }
+    select, textarea, input[type="text"], input[type="number"], input[type="email"], input[type="password"] {
+      width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.3rem;
+      background: var(--input-bg); color: var(--text);
+      border: 1.5px solid var(--border); border-radius: var(--radius);
+      font-size: 0.9rem; font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    select:focus, textarea:focus, input:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
     textarea { min-height: 80px; resize: vertical; }
-    button { margin-top: 0.75rem; padding: 0.5rem 1rem; cursor: pointer; background: var(--btn-primary); color: #fff; border: none; border-radius: 4px; }
-    button:hover { background: var(--btn-primary-hover); }
-    button.danger { background: var(--error); }
-    button.danger:hover { background: #c03537; }
-    .section { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--border); }
-    .section:last-of-type { border-bottom: none; }
+    button {
+      margin-top: 0.75rem; padding: 0.55rem 1.1rem;
+      cursor: pointer; background: var(--btn-primary); color: #fff;
+      border: none; border-radius: var(--radius);
+      font-size: 0.875rem; font-weight: 550; font-family: inherit;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    button:hover { background: var(--btn-primary-hover); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(88,101,242,0.25); }
+    button:active { transform: translateY(0); }
+    button.danger { background: var(--btn-danger); }
+    button.danger:hover { background: var(--btn-danger-hover); box-shadow: 0 2px 8px rgba(239,68,68,0.25); }
+    .section {
+      margin-bottom: 1.5rem; padding: 1.25rem;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg); box-shadow: var(--card-shadow);
+    }
+    .section + .section { margin-top: 1rem; }
     .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .row label { margin-top: 0; }
-    .error { color: var(--error); margin-top: 0.5rem; }
-    .success { color: var(--success); margin-top: 0.5rem; }
-    ul { list-style: none; padding: 0; margin: 0; }
-    li { padding: 0.5rem; background: var(--card-bg); border-radius: 4px; margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; }
-    .schedule-preview { font-size: 0.875rem; color: var(--text-muted); }
-    .schedule-where { display: block; font-size: 0.8rem; color: #5865f2; margin-top: 0.15rem; }
+    .error { color: var(--error); margin-top: 0.5rem; font-size: 0.875rem; }
+    .success { color: var(--success); margin-top: 0.5rem; font-size: 0.875rem; }
+    ul, ol { list-style: none; padding: 0; margin: 0; }
+    li {
+      padding: 0.65rem 0.85rem; background: var(--bg);
+      border: 1px solid var(--card-border); border-radius: var(--radius);
+      margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;
+      transition: border-color 0.15s;
+    }
+    li:hover { border-color: var(--accent); }
+    ol li { list-style: none; }
+    .schedule-preview { font-size: 0.85rem; color: var(--text-muted); }
+    .schedule-where { display: block; font-size: 0.8rem; color: var(--accent); margin-top: 0.15rem; font-weight: 500; }
     .muted { color: var(--text-muted); font-size: 0.875rem; }
-    .next-run { display: block; font-size: 0.8rem; color: var(--success); margin-top: 0.25rem; }
-    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-left: 0.25rem; }
+    .next-run { display: block; font-size: 0.8rem; color: var(--success); margin-top: 0.25rem; font-weight: 500; }
+    .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.78rem; margin-left: 0.25rem; border-radius: 6px; }
     .btn-secondary { background: var(--btn-secondary); color: #fff; }
-    .btn-secondary:hover { background: var(--btn-secondary-hover); }
-    #editScheduleModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10; align-items: center; justify-content: center; }
+    .btn-secondary:hover { background: var(--btn-secondary-hover); box-shadow: none; }
+    code { background: var(--accent-soft); color: var(--accent); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.82rem; font-weight: 500; }
+    #editScheduleModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 10; align-items: center; justify-content: center; }
     #editScheduleModal.show { display: flex; }
-    #editScheduleModal .modal-inner { background: var(--bg); color: var(--text); padding: 1.25rem; border-radius: 8px; max-width: 480px; width: 100%; max-height: 90vh; overflow: auto; border: 1px solid var(--border); }
+    #editScheduleModal .modal-inner { background: var(--card-bg); color: var(--text); padding: 1.5rem; border-radius: var(--radius-lg); max-width: 500px; width: 100%; max-height: 90vh; overflow: auto; border: 1px solid var(--card-border); box-shadow: 0 20px 60px rgba(0,0,0,0.15); }
     #editScheduleModal h3 { margin-top: 0; }
-    .nav { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-    .nav a { color: var(--text-muted); text-decoration: none; padding: 0.35rem 0.75rem; border-radius: 4px; }
-    .nav a:hover, .nav a.active { color: var(--text); background: var(--card-bg); }
+    .nav {
+      display: flex; gap: 0.25rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      padding: 0.3rem; background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg); box-shadow: var(--card-shadow);
+    }
+    .nav a {
+      color: var(--text-muted); text-decoration: none;
+      padding: 0.45rem 0.85rem; border-radius: var(--radius);
+      font-size: 0.85rem; font-weight: 500;
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav a:hover { color: var(--text); background: var(--accent-soft); }
+    .nav a.active { color: #fff; background: var(--btn-primary); box-shadow: 0 1px 4px rgba(88,101,242,0.3); }
     .page { display: none; }
     .page.active { display: block; }
     .message-row { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem; }
     .message-row textarea { flex: 1; min-height: 60px; }
+    .info-box {
+      font-size: 0.82rem; margin-bottom: 0.75rem; padding: 0.65rem 0.85rem;
+      background: var(--accent-soft); border-radius: var(--radius);
+      border-left: 3px solid var(--accent); line-height: 1.5;
+    }
     /* Landing */
     .landing-wrap { min-height: 100vh; display: flex; flex-direction: column; }
     .landing-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 2rem; }
-    .landing-logo { font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; }
+    .landing-logo { font-size: 1.25rem; font-weight: 700; color: var(--text); text-decoration: none; letter-spacing: -0.02em; }
     .landing-auth { display: flex; gap: 0.5rem; align-items: center; }
-    .landing-auth a { padding: 0.4rem 0.9rem; border-radius: 8px; font-size: 0.9rem; font-weight: 500; text-decoration: none; transition: background 0.2s, color 0.2s; }
-    .landing-auth .btn-outline { color: var(--text); border: 1px solid var(--border); background: transparent; }
-    .landing-auth .btn-outline:hover { background: var(--card-bg); }
+    .landing-auth a { padding: 0.45rem 1rem; border-radius: var(--radius); font-size: 0.9rem; font-weight: 550; text-decoration: none; transition: all 0.2s; }
+    .landing-auth .btn-outline { color: var(--text); border: 1.5px solid var(--border); background: transparent; }
+    .landing-auth .btn-outline:hover { background: var(--card-bg); border-color: var(--accent); color: var(--accent); }
     .landing-auth .btn-primary { background: var(--btn-primary); color: #fff; border: none; }
     .landing-auth .btn-primary:hover { background: var(--btn-primary-hover); }
     .landing-hero { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 2rem 0; text-align: center; }
-    .landing-hero h1 { font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 0.75rem; line-height: 1.2; font-weight: 700; }
-    .landing-hero p { font-size: 1.1rem; color: var(--text-muted); max-width: 420px; margin: 0 auto 1.5rem; line-height: 1.5; }
-    .landing-cta { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; font-size: 1rem; font-weight: 600; background: var(--btn-primary); color: #fff; border: none; border-radius: 10px; cursor: pointer; text-decoration: none; margin: 0 auto; transition: background 0.2s, transform 0.1s; }
-    .landing-cta:hover { background: var(--btn-primary-hover); transform: translateY(-1px); }
+    .landing-hero h1 { font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 0.75rem; line-height: 1.15; font-weight: 800; letter-spacing: -0.03em; }
+    .landing-hero p { font-size: 1.1rem; color: var(--text-muted); max-width: 440px; margin: 0 auto 1.75rem; line-height: 1.6; }
+    .landing-cta {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.85rem 1.75rem; font-size: 1rem; font-weight: 650;
+      background: var(--btn-primary); color: #fff; border: none;
+      border-radius: var(--radius-lg); cursor: pointer; text-decoration: none;
+      margin: 0 auto; transition: all 0.2s;
+      box-shadow: 0 4px 14px rgba(88,101,242,0.35);
+    }
+    .landing-cta:hover { background: var(--btn-primary-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(88,101,242,0.4); }
     .landing-features { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin-top: 2.5rem; }
-    .landing-features span { padding: 0.4rem 0.9rem; background: var(--card-bg); color: var(--text-muted); border-radius: 999px; font-size: 0.85rem; }
+    .landing-features span {
+      padding: 0.5rem 1rem; background: var(--card-bg);
+      color: var(--text-muted); border-radius: 999px; font-size: 0.85rem;
+      border: 1px solid var(--card-border); font-weight: 500;
+    }
     .landing-blob { width: 120px; height: 120px; margin: 0 auto 1.5rem; border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; background: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%); opacity: 0.85; animation: blob 8s ease-in-out infinite; }
     [data-theme="dark"] .landing-blob { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); opacity: 0.7; }
     @keyframes blob { 0%, 100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; transform: rotate(0deg); } 50% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; transform: rotate(180deg); } }
-    input[type="email"], input[type="password"] { width: 100%; padding: 0.5rem; margin-top: 0.25rem; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+    /* Auth pages */
+    .auth-page { max-width: 400px; margin: 0 auto; padding-top: 3rem; }
+    .auth-page h1 { text-align: center; }
+    .auth-page .section { margin-top: 1.5rem; }
+    .auth-page .auth-footer { text-align: center; margin-top: 1.25rem; }
+    .auth-page .discord-btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.55rem 1.1rem; background: #5865f2; color: #fff;
+      text-decoration: none; border-radius: var(--radius); font-weight: 550;
+      font-size: 0.9rem; transition: all 0.15s;
+    }
+    .auth-page .discord-btn:hover { background: #4752c4; }
+    /* App header */
+    .app-header { margin-bottom: 1.25rem; }
+    .app-header h1 { margin-bottom: 0.15rem; }
+    .app-meta { font-size: 0.82rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .app-meta a { color: var(--accent); text-decoration: none; font-weight: 500; }
+    .app-meta a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -129,21 +223,21 @@
     </main>
   </div>
 
-  <div id="loginPage" style="display: none;">
+  <div id="loginPage" class="auth-page" style="display: none;">
     <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLandingFromLogin" class="muted" style="font-size: 0.875rem; text-decoration: none;">← Back to home</a></p>
-    <h1 style="margin-top: 0;">Log in</h1>
+    <h1>Welcome back</h1>
     <p class="muted" style="margin-bottom: 1rem;">Log in with your email or Discord (if you’ve already linked it).</p>
     <div class="section" style="margin-bottom: 1rem;">
       <label for="loginEmail">Email</label>
       <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email">
       <label for="loginPassword">Password</label>
       <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
-      <button type="button" id="loginBtn">Log in</button>
+      <button type="button" id="loginBtn" style="width: 100%;">Log in</button>
       <p id="loginStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
     </div>
     <div id="discordLoginWrap" class="section" style="display: none;">
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Or log in with Discord (only if you already linked your account)</p>
-      <a href="/api/auth/discord" id="discordLoginBtn" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: #5865f2; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 500;">Login with Discord</a>
+      <a href="/api/auth/discord" id="discordLoginBtn" class="discord-btn">Login with Discord</a>
     </div>
     <p id="redirectUriHint" class="muted" style="margin-top: 0.75rem; font-size: 0.8rem; display: none;"></p>
     <a id="redirectUriLink" href="#" target="_blank" rel="noopener" style="font-size: 0.8rem; word-break: break-all; display: none;"></a>
@@ -151,16 +245,16 @@
     <p style="margin-top: 0.5rem;"><button type="button" id="darkModeBtnLogin" class="btn-sm btn-secondary">Dark mode</button></p>
   </div>
 
-  <div id="registerPage" style="display: none;">
+  <div id="registerPage" class="auth-page" style="display: none;">
     <p style="margin-bottom: 0.75rem;"><a href="#" id="backToLandingFromRegister" class="muted" style="font-size: 0.875rem; text-decoration: none;">← Back to home</a></p>
-    <h1 style="margin-top: 0;">Create an account</h1>
+    <h1>Create an account</h1>
     <p class="muted" style="margin-bottom: 1rem;">You can link your Discord account after signing up.</p>
     <div class="section" style="margin-bottom: 1rem;">
       <label for="registerEmail">Email</label>
       <input type="email" id="registerEmail" placeholder="you@example.com" autocomplete="email">
       <label for="registerPassword">Password (min 6 characters)</label>
       <input type="password" id="registerPassword" placeholder="••••••••" autocomplete="new-password">
-      <button type="button" id="registerBtn">Register</button>
+      <button type="button" id="registerBtn" style="width: 100%;">Create account</button>
       <p id="registerStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
     </div>
     <p class="muted" style="margin-top: 1rem; font-size: 0.875rem;">Already have an account? <a href="#" id="goToLoginFromRegister" style="color: var(--btn-primary);">Log in</a></p>
@@ -168,9 +262,15 @@
   </div>
 
   <div id="appPanel" style="display: none;">
-  <h1>Discord Scheduler</h1>
-  <p style="font-size: 0.875rem; color: var(--text-muted);"><a href="#" id="logoutLink">Log out</a> <span id="adminBadge" class="muted" style="display: none;"> · Admin</span> <span id="discordLinkWrap" style="display: none;"> · <span id="discordLinkText"></span> <a href="/api/auth/discord?link=1" id="linkDiscordLink" style="display: none;">Link Discord</a> <button type="button" id="unlinkDiscordBtn" class="btn-sm btn-secondary" style="display: none;">Unlink Discord</button></span> <span style="margin-left: 0.5rem;"><button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode">Dark</button></span></p>
-  <p class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;">On Railway: set <code>DATA_DIR</code> to a volume path (e.g. <code>/data</code>) so schedules, custom commands, and deleted-log channels persist across restarts.</p>
+  <div class="app-header">
+    <h1>Discord Bot Panel</h1>
+    <div class="app-meta">
+      <a href="#" id="logoutLink">Log out</a>
+      <span id="adminBadge" style="display: none; background: var(--accent-soft); color: var(--accent); padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">Admin</span>
+      <span id="discordLinkWrap" style="display: none;"><span id="discordLinkText"></span> <a href="/api/auth/discord?link=1" id="linkDiscordLink" style="display: none;">Link Discord</a> <button type="button" id="unlinkDiscordBtn" class="btn-sm btn-secondary" style="display: none;">Unlink</button></span>
+      <button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode" style="margin-top: 0;">Dark</button>
+    </div>
+  </div>
 
   <nav class="nav" id="appNav">
     <a href="#" data-page="dashboard" class="active">Dashboard</a>
@@ -194,14 +294,14 @@
       <div id="sendStatus"></div>
     </div>
     <div id="botServersSection" class="section" style="display: none;">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Servers the bot is in</h2>
+      <h2>Servers the bot is in</h2>
       <ul id="botServersList"></ul>
     </div>
   </div>
 
   <div id="pageSchedules" class="page">
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Schedule recurring message</h2>
+      <h2>Schedule recurring message</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Add one or more messages: each time the schedule runs, one will be picked at random.</p>
       <label for="scheduleGuild">Server</label>
       <select id="scheduleGuild"><option value="">Choose server</option></select>
@@ -244,23 +344,23 @@
       <div id="scheduleStatus"></div>
     </div>
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">All scheduled messages</h2>
+      <h2>All scheduled messages</h2>
       <ul id="scheduleList"></ul>
     </div>
   </div>
 
   <div id="pageCommands" class="page">
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Custom commands</h2>
+      <h2>Custom commands</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Users type <strong id="customCommandPrefix">!</strong><strong>command</strong> in chat (e.g. <code>!hug @max</code>). The bot replies with your template. Use placeholders: <code>{author}</code> (who ran it), <code>{target}</code> (first @mention), <code>{author_username}</code>, <code>{target_username}</code>, <code>{args}</code> (rest of message).</p>
-      <p style="font-size: 0.8rem; margin-bottom: 0.5rem; padding: 0.5rem; background: var(--card-bg); border-radius: 4px; border-left: 3px solid #5865f2;"><strong>If nothing happens when you type !command:</strong> In the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> open your app → <strong>Bot</strong> → under <strong>Privileged Gateway Intents</strong> turn on <strong>MESSAGE CONTENT INTENT</strong>, then save. Restart the bot if it was already running.</p>
+      <p class="info-box"><strong>If nothing happens when you type !command:</strong> In the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> open your app → <strong>Bot</strong> → under <strong>Privileged Gateway Intents</strong> turn on <strong>MESSAGE CONTENT INTENT</strong>, then save. Restart the bot if it was already running.</p>
       <label for="customCommandName">Command name</label>
       <input type="text" id="customCommandName" placeholder="e.g. hug">
       <label for="customCommandTemplate">Response template</label>
       <textarea id="customCommandTemplate" placeholder="e.g. {author} hugged {target}" style="min-height: 60px;"></textarea>
       <button type="button" id="customCommandSaveBtn">Save</button>
       <p id="customCommandStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Commands</h3>
+      <h3>Commands</h3>
       <p id="customCommandsDebug" class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;"></p>
       <ul id="customCommandsList"></ul>
     </div>
@@ -268,7 +368,7 @@
 
   <div id="pageSaved" class="page">
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Saved messages</h2>
+      <h2>Saved messages</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Save message templates by name. Use them in schedules (e.g. send SavedMessage1 or SavedMessage2 at random).</p>
       <label for="savedMessageName">Name</label>
       <input type="text" id="savedMessageName" placeholder="e.g. welcome">
@@ -276,44 +376,46 @@
       <textarea id="savedMessageContent" placeholder="Message text" style="min-height: 60px;"></textarea>
       <button type="button" id="savedMessageSaveBtn">Save</button>
       <p id="savedMessageStatus" class="muted" style="font-size: 0.875rem; margin-top: 0.25rem;"></p>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Saved templates</h3>
+      <h3>Saved templates</h3>
       <ul id="savedMessagesList"></ul>
     </div>
   </div>
 
   <div id="pageEconomy" class="page">
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Economy system</h2>
-      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">Users can earn coins by working jobs, completing quests, and gambling. Type <code>!economy</code> in Discord to see all commands.</p>
+      <h2>Economy system</h2>
+      <p class="muted" style="margin-bottom: 0.75rem;">Users earn coins through jobs, quests, and gambling. Type <code>!economy</code> in Discord for all commands.</p>
       <label for="ecoGuildSelect">Server</label>
       <select id="ecoGuildSelect"><option value="">Choose server</option></select>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Leaderboard</h3>
+      <h3>Leaderboard</h3>
       <ol id="ecoLeaderboard"></ol>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Jobs</h3>
+      <h3>Jobs</h3>
       <ul id="ecoJobs"></ul>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Shop items</h3>
+      <h3>Shop items</h3>
       <ul id="ecoShop"></ul>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Quests</h3>
+      <h3>Quests</h3>
       <ul id="ecoQuests"></ul>
     </div>
   </div>
 
   <div id="pageJail" class="page">
     <div class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Jail system</h2>
-      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">The jail system lets you remove server access from a user and give them a "criminal" role instead.</p>
-      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;"><strong>Setup:</strong> Run <code>/jail-setup</code> in Discord and pick the <strong>member role</strong> (gives server access) and the <strong>criminal role</strong>.<br>
-      <strong>Assign to all:</strong> Run <code>/jail-assign-all</code> to give the member role to every existing member who doesn't have it.<br>
-      <strong>Usage:</strong> <code>!jail @user</code> removes member role + adds criminal role. <code>!unjail @user</code> reverses it.<br>
-      <strong>Auto-role:</strong> New members automatically get the member role when they join.</p>
-      <h3 style="font-size: 0.95rem; margin-top: 1rem;">Configured servers</h3>
+      <h2>Jail system</h2>
+      <p class="muted" style="margin-bottom: 0.75rem;">Remove server access from a user and assign them a "criminal" role.</p>
+      <div class="info-box">
+        <strong>Setup:</strong> Run <code>/jail-setup</code> in Discord and pick the member role + criminal role.<br>
+        <strong>Assign all:</strong> <code>/jail-assign-all</code> gives the member role to every existing member.<br>
+        <strong>Usage:</strong> <code>!jail @user</code> to jail, <code>!unjail @user</code> to release.<br>
+        <strong>Auto-role:</strong> New members automatically get the member role.
+      </div>
+      <h3>Configured servers</h3>
       <ul id="jailConfigList"></ul>
     </div>
   </div>
 
   <div id="pageLogs" class="page">
     <div id="deletedLogSection" class="section">
-      <h2 style="font-size: 1rem; margin-bottom: 0.5rem;">Deleted message logging</h2>
+      <h2>Deleted message logging</h2>
       <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.5rem;">The bot monitors <strong>every server it’s in</strong> for deleted messages. Logs are sent only to channels where someone ran <strong><code>/log-deletes here</code></strong>. Run <code>/log-deletes off</code> in a channel to stop.</p>
       <p style="font-size: 0.875rem; margin-bottom: 0.5rem;">Currently sending logs to:</p>
       <ul id="deletedLogChannelsList"></ul>

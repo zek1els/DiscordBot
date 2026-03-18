@@ -254,23 +254,17 @@ client.on("messageCreate", async (message) => {
 
   // !help command
   if (commandName === "help") {
-    await message.channel.send({ content: `**📖 All Commands**
-
-**General**
-\`!help\` — Show this message
-
-**Economy** (\`!economy\` for full list)
-\`!balance\` — Check balance · \`!daily\` — Daily reward
-\`!work\` — Earn coins · \`!jobs\` / \`!apply\` — Jobs
-\`!quest\` — Quests · \`!shop\` / \`!buy\` — Shop
-\`!coinflip\` · \`!slots\` · \`!blackjack\` — Gambling
-\`!rob @user\` · \`!give @user\` · \`!leaderboard\`
-\`!deposit\` / \`!withdraw\` · \`!inventory\` · \`!stats\`
-
-**Jail** (requires allowed role)
-\`!jail @user\` — Jail a user · \`!unjail @user\` — Release
-
-**Custom commands** — Set up via the web panel` }).catch(() => {});
+    await message.channel.send({ embeds: [{
+      color: 0x5865f2,
+      title: "📖  All Commands",
+      fields: [
+        { name: "General", value: "`!help` — Show this message", inline: false },
+        { name: "💰 Economy", value: "`!balance` `!daily` `!work` `!jobs` `!apply` `!quest`\n`!coinflip` `!slots` `!blackjack`\n`!rob` `!give` `!leaderboard`\n`!deposit` `!withdraw` `!shop` `!buy` `!inventory` `!stats`\nType `!economy` for details", inline: false },
+        { name: "⚖️ Jail", value: "`!jail @user` — Jail a user\n`!unjail @user` — Release", inline: false },
+        { name: "⚡ Custom", value: "Set up via the web panel", inline: false },
+      ],
+      footer: { text: "Use !economy for detailed economy help" },
+    }] }).catch(() => {});
     return;
   }
 
