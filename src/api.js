@@ -8,7 +8,7 @@ import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMes
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
-import { create as createUser, validate as validateUser, getById, getByEmail, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser, markVerified } from "./users.js";
+import { create as createUser, validate as validateUser, getById, getByEmail, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser, markVerified, listUsers, deleteUser } from "./users.js";
 import { isSmtpConfigured, sendVerificationCode, verifyCode } from "./emailVerification.js";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { getDataDir } from "./dataDir.js";
@@ -332,6 +332,38 @@ export function createApi(client) {
 
   // All other /api routes require auth (auth/config and auth/redirect-uri are above, so public) (login/logout/auth/check are above and match first)
   app.use("/api", auth);
+
+  /** Admin only: list all registered users (no passwords). */
+  app.get("/api/admin/users", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      res.json({ users: listUsers() });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Admin only: delete a user account by id. Also removes their sessions. */
+  app.delete("/api/admin/users/:id", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const userId = req.params.id;
+    // Prevent self-deletion
+    const currentUser = getCurrentUser(req);
+    if (currentUser && currentUser.userId === userId) {
+      return res.status(400).json({ error: "Cannot delete your own account" });
+    }
+    try {
+      const deleted = deleteUser(userId);
+      if (!deleted) return res.status(404).json({ error: "User not found" });
+      // Remove any active sessions for this user
+      for (const [token, session] of sessions) {
+        if (session.userId === userId) sessionDelete(token);
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   /** Admin only: list servers (guilds) the bot is in */
   app.get("/api/bot/servers", async (req, res) => {

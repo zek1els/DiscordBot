@@ -172,6 +172,28 @@ export function unsetDiscord(userId) {
   saveAll(users);
 }
 
+/** List all users (safe fields only, no password hashes). */
+export function listUsers() {
+  return loadAll().map((u) => ({
+    id: u.id,
+    email: u.email,
+    verified: u.verified !== false,
+    discordId: u.discordId,
+    discordUsername: u.discordUsername,
+    createdAt: u.createdAt,
+  }));
+}
+
+/** Delete a user by id. Returns true if found and deleted. */
+export function deleteUser(userId) {
+  const users = loadAll();
+  const i = users.findIndex((u) => u.id === userId);
+  if (i === -1) return false;
+  users.splice(i, 1);
+  saveAll(users);
+  return true;
+}
+
 /** Whether any user exists (so we can require auth). */
 export function hasAnyUser() {
   return loadAll().length > 0;

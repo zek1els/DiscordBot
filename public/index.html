@@ -296,6 +296,7 @@
     <a href="#" data-page="jail">Jail</a>
     <a href="#" data-page="economy">Economy</a>
     <a href="#" data-page="logs" id="navLogs" style="display: none;">Deleted logs</a>
+    <a href="#" data-page="users" id="navUsers" style="display: none;">Users</a>
   </nav>
 
   <div id="pageDashboard" class="page active">
@@ -441,6 +442,14 @@
       <ul id="deletedLogChannelsList"></ul>
     </div>
   </div>
+
+  <div id="pageUsers" class="page">
+    <div class="section">
+      <h2>Registered users</h2>
+      <p class="muted" style="font-size: 0.875rem; margin-bottom: 0.75rem;">All accounts registered on this panel. Only admins can view and manage users.</p>
+      <ul id="usersList"></ul>
+    </div>
+  </div>
   </div>
 
   <div id="editScheduleModal">
@@ -543,11 +552,13 @@
         document.getElementById("adminBadge").style.display = "inline";
         document.getElementById("botServersSection").style.display = "block";
         document.getElementById("navLogs").style.display = "";
+        document.getElementById("navUsers").style.display = "";
         loadBotServers();
       } else {
         document.getElementById("adminBadge").style.display = "none";
         document.getElementById("botServersSection").style.display = "none";
         document.getElementById("navLogs").style.display = "none";
+        document.getElementById("navUsers").style.display = "none";
       }
       const discordWrap = document.getElementById("discordLinkWrap");
       const linkText = document.getElementById("discordLinkText");
@@ -1043,6 +1054,7 @@
       if (page === "economy") loadEconomyPage();
       if (page === "jail") loadJailConfigPage();
       if (page === "logs" && window._isAdmin) loadDeletedLogConfig();
+      if (page === "users" && window._isAdmin) loadUsersPage();
     });
 
     (function initDarkMode() {
@@ -1196,6 +1208,59 @@
           if (el) el.textContent = `Data dir: ${dd.dataDir} | Jail file exists: ${dd.jailConfigExists} | Guilds cached: ${dd.guildsInCache} | Config keys: ${dd.jailConfig ? Object.keys(dd.jailConfig).length : 0}`;
         }
       } catch (_) {}
+    }
+
+    async function loadUsersPage() {
+      const listEl = document.getElementById("usersList");
+      if (!listEl) return;
+      listEl.innerHTML = "<li><span class=\"muted\">Loading users...</span></li>";
+      try {
+        const r = await fetch("/api/admin/users", fetchOpts({ headers: headers() }));
+        if (!r.ok) {
+          listEl.innerHTML = `<li><span class="muted">Error ${r.status}</span></li>`;
+          return;
+        }
+        const data = await r.json();
+        const users = data.users || [];
+        if (users.length === 0) {
+          listEl.innerHTML = "<li><span class=\"muted\">No registered users.</span></li>";
+          return;
+        }
+        listEl.innerHTML = "";
+        for (const u of users) {
+          const li = document.createElement("li");
+          li.style.cssText = "flex-direction: column; align-items: flex-start;";
+          const infoDiv = document.createElement("div");
+          const verifiedBadge = u.verified
+            ? '<span style="color: var(--success); font-size: 0.75rem; margin-left: 0.25rem;">Verified</span>'
+            : '<span style="color: var(--error); font-size: 0.75rem; margin-left: 0.25rem;">Unverified</span>';
+          const discordInfo = u.discordUsername
+            ? `<br><span class="muted">Discord:</span> ${escapeHtml(u.discordUsername)} <span class="muted">(${escapeHtml(u.discordId || "")})</span>`
+            : '<br><span class="muted">Discord: not linked</span>';
+          const created = u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "Unknown";
+          infoDiv.innerHTML = `<strong>${escapeHtml(u.email)}</strong>${verifiedBadge}${discordInfo}<br><span class="muted">Created:</span> ${escapeHtml(created)} <span class="muted">ID:</span> ${escapeHtml(u.id)}`;
+          li.appendChild(infoDiv);
+          const btn = document.createElement("button");
+          btn.textContent = "Delete";
+          btn.className = "btn-sm danger";
+          btn.style.marginTop = "0.5rem";
+          btn.onclick = async () => {
+            if (!confirm("Delete account " + u.email + "? This cannot be undone.")) return;
+            const dr = await fetch(`/api/admin/users/${encodeURIComponent(u.id)}`, fetchOpts({ method: "DELETE", headers: headers() }));
+            const dd = await dr.json().catch(() => ({}));
+            if (dr.ok) {
+              loadUsersPage();
+            } else {
+              alert(dd.error || "Failed to delete user.");
+            }
+          };
+          li.appendChild(btn);
+          listEl.appendChild(li);
+        }
+      } catch (e) {
+        console.error("loadUsersPage error:", e);
+        listEl.innerHTML = `<li><span class="muted">Failed to load users: ${escapeHtml(e.message)}</span></li>`;
+      }
     }
 
     async function loadDeletedLogConfig() {
