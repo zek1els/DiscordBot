@@ -47,7 +47,7 @@ export async function handleMessageDelete(message, client) {
       name: "Message Deleted",
     },
     fields: [
-      { name: "Author", value: authorField(message.author), inline: true },
+      { name: "Author", value: message.author ? `<@${message.author.id}>` : "Unknown", inline: true },
       { name: "Channel", value: ch.id ? `<#${ch.id}>` : `# ${ch.name}`, inline: true },
       { name: "Content", value: preview },
     ],
