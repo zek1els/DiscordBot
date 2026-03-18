@@ -236,7 +236,7 @@ export class MusicQueue {
         "-reconnect_streamed", "1",
         "-reconnect_delay_max", "5",
         "-i", audioUrl,
-        "-f", "opus",
+        "-f", "s16le",
         "-ar", "48000",
         "-ac", "2",
         "-loglevel", "error",
@@ -257,7 +257,7 @@ export class MusicQueue {
       });
 
       const resource = createAudioResource(ffmpeg.stdout, {
-        inputType: StreamType.OggOpus,
+        inputType: StreamType.Raw,
         inlineVolume: true,
       });
       resource.volume?.setVolume(this.volume / 100);

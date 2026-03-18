@@ -20,9 +20,22 @@ import { recordDeleted, recordEdited } from "./snipe.js";
 
 config();
 
+const WEB_ONLY = process.env.WEB_ONLY === "true";
+
 function ensureDataStorage() {
   migrateCustomCommands();
 }
+
+if (WEB_ONLY) {
+  // Railway: only start the Express web panel, no Discord bot
+  ensureDataStorage();
+  const { createApi } = await import("./api.js");
+  const port = Number(process.env.PORT) || 3000;
+  const api = createApi(null);
+  api.listen(port, "0.0.0.0", () => {
+    console.log(`Web panel (web-only mode): http://localhost:${port}`);
+  });
+} else {
 
 const client = new Client({
   intents: [
@@ -137,3 +150,5 @@ process.on("SIGTERM", () => {
 });
 
 client.login(token);
+
+} // end of else (bot mode)
