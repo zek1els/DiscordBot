@@ -115,7 +115,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(`Withdrew ${formatCoins(amount)} from your bank.`), true;
     }
 
-    case "daily": {
+    case "daily":
+    case "d": {
       const cd = getCooldownRemaining(guildId, userId, "daily");
       if (cd > 0) return send(`You already claimed your daily! Come back in **${formatCooldown(cd)}**.`), true;
       const amount = rand(100, 300);
@@ -124,7 +125,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(`You claimed your daily reward of ${formatCoins(amount)}!`), true;
     }
 
-    case "work": {
+    case "work":
+    case "w": {
       const u = getUser(guildId, userId);
       if (!u.job) return send("You don't have a job! Use `!jobs` to see available jobs and `!apply <job>` to get one."), true;
       const job = JOBS.find((j) => j.id === u.job);
@@ -146,7 +148,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(text), true;
     }
 
-    case "jobs": {
+    case "jobs":
+    case "j": {
       const level = getJobLevel(guildId, userId);
       const u = getUser(guildId, userId);
       let text = `**Available Jobs** (your level: **${level}**)\n`;
@@ -160,7 +163,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(text), true;
     }
 
-    case "apply": {
+    case "apply":
+    case "ap": {
       const jobName = args.toLowerCase().trim();
       if (!jobName) return send("Usage: `!apply <job name>` — use `!jobs` to see available jobs."), true;
       const job = JOBS.find((j) => j.id === jobName || j.name.toLowerCase() === jobName);
@@ -171,7 +175,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(`You are now working as a **${job.name}**! Use \`!work\` to start earning.`), true;
     }
 
-    case "quest": {
+    case "quest":
+    case "q": {
       const u = getUser(guildId, userId);
       if (!u.quest) {
         const cd = getCooldownRemaining(guildId, userId, "quest");
@@ -212,7 +217,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       }
     }
 
-    case "slots": {
+    case "slots":
+    case "sl": {
       const u = getUser(guildId, userId);
       const amount = args.toLowerCase() === "all" ? u.wallet : parseInt(args);
       if (!amount || amount <= 0) return send("Usage: `!slots <amount|all>`"), true;
@@ -289,7 +295,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(`🃏 **Blackjack**\nYou: ${pDisplay}\nDealer: ${dDisplay}\n${result}`), true;
     }
 
-    case "rob": {
+    case "rob":
+    case "r": {
       const target = message.mentions?.users?.first();
       if (!target || target.id === userId) return send("Usage: `!rob @user`"), true;
       const cd = getCooldownRemaining(guildId, userId, "rob");
@@ -344,7 +351,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(text), true;
     }
 
-    case "shop": {
+    case "shop":
+    case "s": {
       let text = "**🛒 Shop**\n";
       for (const item of SHOP_ITEMS) {
         text += `**${item.name}** — ${formatCoins(item.price)}\n  ${item.description}\n  \`!buy ${item.id}\`\n`;
@@ -352,7 +360,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(text), true;
     }
 
-    case "buy": {
+    case "buy":
+    case "b": {
       const itemId = args.toLowerCase().trim().replace(/\s+/g, "_");
       if (!itemId) return send("Usage: `!buy <item id>` — check `!shop` for items."), true;
       const result = buyItem(guildId, userId, itemId);
@@ -376,7 +385,8 @@ export async function handleEconomyCommand(message, commandName, args) {
       return send(text), true;
     }
 
-    case "stats": {
+    case "stats":
+    case "st": {
       const target = message.mentions?.users?.first() || message.author;
       const u = getUser(guildId, target.id);
       const level = getJobLevel(guildId, target.id);
@@ -391,12 +401,12 @@ export async function handleEconomyCommand(message, commandName, args) {
         color: 0xf59e0b,
         title: "💰  Economy Commands",
         fields: [
-          { name: "💵 Money", value: "`!balance` — Check balance\n`!daily` — Daily reward\n`!deposit` / `!withdraw` — Bank\n`!give @user <amt>` — Send coins", inline: true },
-          { name: "💼 Work", value: "`!jobs` — See all jobs\n`!apply <job>` — Take a job\n`!work` — Earn coins\n`!quest` — Quests", inline: true },
-          { name: "🎰 Gambling", value: "`!coinflip <amt>` — 50/50\n`!slots <amt>` — Slot machine\n`!blackjack <amt>` — Blackjack\n`!rob @user` — Steal coins", inline: true },
-          { name: "📦 Other", value: "`!shop` — Buy items · `!buy <item>` — Purchase\n`!inventory` — Your items · `!leaderboard` — Top players · `!stats` — Your stats", inline: false },
+          { name: "💵 Money", value: "`!bal` — Check your wallet & bank\n`!d` — Claim daily reward (24h)\n`!dep <amt>` — Deposit into bank\n`!with <amt>` — Withdraw from bank\n`!give @user <amt>` — Send coins", inline: true },
+          { name: "💼 Work", value: "`!j` — Browse available jobs\n`!ap <job>` — Apply for a job\n`!w` — Work your job for coins\n`!q` — Get or check a quest", inline: true },
+          { name: "🎰 Gambling", value: "`!cf <amt>` — Coinflip, double or nothing\n`!sl <amt>` — Slot machine\n`!bj <amt>` — Blackjack vs dealer\n`!r @user` — Rob someone's wallet", inline: true },
+          { name: "📦 Other", value: "`!s` — Browse the shop · `!b <item>` — Buy an item\n`!inv` — Your inventory · `!lb` — Richest players · `!st` — Your stats", inline: false },
         ],
-        footer: { text: "Amounts can be a number or \"all\"" },
+        footer: { text: "Amounts can be a number or \"all\" · Aliases shown are the shortest form" },
       }] }).catch(() => {});
       return true;
     }
@@ -408,9 +418,9 @@ export async function handleEconomyCommand(message, commandName, args) {
 
 export const ECONOMY_COMMAND_NAMES = new Set([
   "balance", "bal", "deposit", "dep", "withdraw", "with",
-  "daily", "work", "jobs", "apply", "quest",
-  "coinflip", "cf", "slots", "blackjack", "bj",
-  "rob", "give", "pay", "leaderboard", "lb",
-  "shop", "buy", "inventory", "inv", "stats",
+  "daily", "d", "work", "w", "jobs", "j", "apply", "ap", "quest", "q",
+  "coinflip", "cf", "slots", "sl", "blackjack", "bj",
+  "rob", "r", "give", "pay", "leaderboard", "lb",
+  "shop", "s", "buy", "b", "inventory", "inv", "stats", "st",
   "economy", "eco",
 ]);

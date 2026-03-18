@@ -253,17 +253,22 @@ client.on("messageCreate", async (message) => {
   const rest = firstSpace === -1 ? "" : afterPrefix.slice(firstSpace + 1).trim();
 
   // !help command
-  if (commandName === "help") {
+  if (commandName === "help" || commandName === "h") {
+    const fields = [
+      { name: "📖 General", value: "`!help` / `!h` — Show this menu", inline: false },
+      { name: "💰 Economy", value: "`!bal` — Balance · `!d` — Daily · `!w` — Work · `!j` — Jobs · `!ap` — Apply\n`!q` — Quest · `!cf` — Coinflip · `!sl` — Slots · `!bj` — Blackjack\n`!r` — Rob · `!give` — Send coins · `!lb` — Leaderboard\n`!dep`/`!with` — Bank · `!s` — Shop · `!b` — Buy · `!inv` — Inventory · `!st` — Stats\nType `!eco` for detailed help", inline: false },
+      { name: "⚖️ Jail", value: "`!jail @user` — Remove roles & assign criminal role\n`!unjail @user` — Restore roles & release", inline: false },
+    ];
+    const customCmds = listCustomCommands();
+    if (customCmds.length > 0) {
+      const cmdList = customCmds.map((c) => `\`!${c.name}\``).join("  ");
+      fields.push({ name: "⚡ Custom Commands", value: cmdList, inline: false });
+    }
     await message.channel.send({ embeds: [{
       color: 0x5865f2,
       title: "📖  All Commands",
-      fields: [
-        { name: "General", value: "`!help` — Show this message", inline: false },
-        { name: "💰 Economy", value: "`!balance` `!daily` `!work` `!jobs` `!apply` `!quest`\n`!coinflip` `!slots` `!blackjack`\n`!rob` `!give` `!leaderboard`\n`!deposit` `!withdraw` `!shop` `!buy` `!inventory` `!stats`\nType `!economy` for details", inline: false },
-        { name: "⚖️ Jail", value: "`!jail @user` — Jail a user\n`!unjail @user` — Release", inline: false },
-        { name: "⚡ Custom", value: "Set up via the web panel", inline: false },
-      ],
-      footer: { text: "Use !economy for detailed economy help" },
+      fields,
+      footer: { text: "Most commands have short aliases · Use !eco for economy details" },
     }] }).catch(() => {});
     return;
   }
