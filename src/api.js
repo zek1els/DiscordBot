@@ -9,6 +9,7 @@ import { list as listCustomCommands, add as addCustomCommand, remove as removeCu
 import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
 import { create as createUser, validate as validateUser, getById, getByDiscordId, setDiscord, unsetDiscord, hasAnyUser } from "./users.js";
+import { existsSync, readFileSync } from "fs";
 import { getDataDir } from "./dataDir.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -455,10 +456,9 @@ export function createApi(client) {
   /** Debug: show raw data dir and file contents for diagnosing persistence issues */
   app.get("/api/debug/data", (req, res) => {
     try {
-      const { existsSync, readFileSync } = require("fs");
       const dir = getDataDir();
-      const jailPath = require("path").join(dir, "jail-config.json");
-      const ecoPath = require("path").join(dir, "economy.json");
+      const jailPath = join(dir, "jail-config.json");
+      const ecoPath = join(dir, "economy.json");
       const jailExists = existsSync(jailPath);
       const ecoExists = existsSync(ecoPath);
       let jailRaw = null, ecoKeys = null;

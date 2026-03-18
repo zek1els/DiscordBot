@@ -262,14 +262,16 @@
   </div>
 
   <div id="appPanel" style="display: none;">
-  <div class="app-header">
-    <h1>Discord Bot Panel</h1>
-    <div class="app-meta">
-      <a href="#" id="logoutLink">Log out</a>
-      <span id="adminBadge" style="display: none; background: var(--accent-soft); color: var(--accent); padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">Admin</span>
-      <span id="discordLinkWrap" style="display: none;"><span id="discordLinkText"></span> <a href="/api/auth/discord?link=1" id="linkDiscordLink" style="display: none;">Link Discord</a> <button type="button" id="unlinkDiscordBtn" class="btn-sm btn-secondary" style="display: none;">Unlink</button></span>
-      <button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode" style="margin-top: 0;">Dark</button>
+  <div class="app-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);">
+    <div>
+      <h1 style="margin: 0;">Discord Bot Panel</h1>
+      <div class="app-meta" style="margin-top: 0.25rem;">
+        <a href="#" id="logoutLink">Log out</a>
+        <span id="adminBadge" style="display: none; background: var(--accent-soft); color: var(--accent); padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600;">Admin</span>
+        <span id="discordLinkWrap" style="display: none;"><span id="discordLinkText" class="muted"></span> <a href="/api/auth/discord?link=1" id="linkDiscordLink" style="display: none;">Link Discord</a> <button type="button" id="unlinkDiscordBtn" class="btn-sm btn-secondary" style="display: none; margin-top: 0;">Unlink</button></span>
+      </div>
     </div>
+    <button type="button" id="darkModeBtn" class="btn-sm btn-secondary" title="Toggle dark mode" style="margin-top: 0;">Light</button>
   </div>
 
   <nav class="nav" id="appNav">
@@ -961,26 +963,30 @@
       if (!guildSelect) return;
       try {
         const infoR = await fetch("/api/economy/info", fetchOpts({ headers: headers() }));
-        const info = await infoR.json();
-        jobsList.innerHTML = "";
-        for (const j of info.jobs) {
-          const li = document.createElement("li");
-          li.innerHTML = `<strong>${esc(j.name)}</strong> — ${j.pay[0]}-${j.pay[1]} coins (cooldown: ${Math.round(j.cooldownMs/1000)}s, level ${j.requiredLevel})`;
-          jobsList.appendChild(li);
+        if (infoR.ok) {
+          const info = await infoR.json();
+          jobsList.innerHTML = "";
+          for (const j of (info.jobs || [])) {
+            const li = document.createElement("li");
+            li.innerHTML = `<strong>${esc(j.name)}</strong> — ${j.pay[0]}-${j.pay[1]} coins (cooldown: ${Math.round(j.cooldownMs/1000)}s, level ${j.requiredLevel})`;
+            jobsList.appendChild(li);
+          }
+          shopList.innerHTML = "";
+          for (const item of (info.shop || [])) {
+            const li = document.createElement("li");
+            li.innerHTML = `<strong>${esc(item.name)}</strong> — ${item.price} coins: ${esc(item.description)}`;
+            shopList.appendChild(li);
+          }
+          questsList.innerHTML = "";
+          for (const q of (info.quests || [])) {
+            const li = document.createElement("li");
+            li.innerHTML = `<strong>${esc(q.description)}</strong> — reward: ${q.reward} coins`;
+            questsList.appendChild(li);
+          }
+        } else {
+          console.error("economy/info failed:", infoR.status, await infoR.text().catch(() => ""));
         }
-        shopList.innerHTML = "";
-        for (const item of info.shop) {
-          const li = document.createElement("li");
-          li.innerHTML = `<strong>${esc(item.name)}</strong> — ${item.price} coins: ${esc(item.description)}`;
-          shopList.appendChild(li);
-        }
-        questsList.innerHTML = "";
-        for (const q of info.quests) {
-          const li = document.createElement("li");
-          li.innerHTML = `<strong>${esc(q.description)}</strong> — reward: ${q.reward} coins`;
-          questsList.appendChild(li);
-        }
-      } catch (_) {}
+      } catch (e) { console.error("economy info error:", e); }
       if (guildSelect.options.length <= 1) {
         try {
           const r = await fetch("/api/guilds", fetchOpts({ headers: headers() }));
@@ -998,7 +1004,7 @@
       const loadLb = async () => {
         const gid = guildSelect.value;
         lbList.innerHTML = "";
-        if (!gid) { lbList.innerHTML = "<li class=\"muted\">Select a server to see the leaderboard.</li>"; return; }
+        if (!gid) { lbList.innerHTML = "<li><span class=\"muted\">Select a server to see the leaderboard.</span></li>"; return; }
         try {
           const r = await fetch(`/api/economy/leaderboard/${gid}`, fetchOpts({ headers: headers() }));
           if (!r.ok) {
@@ -1007,7 +1013,7 @@
           }
           const data = await r.json();
           if (!data.leaderboard || data.leaderboard.length === 0) {
-            lbList.innerHTML = "<li class=\"muted\">No one has earned coins yet.</li>";
+            lbList.innerHTML = "<li><span class=\"muted\">No one has earned coins yet.</span></li>";
             return;
           }
           for (const entry of data.leaderboard) {
@@ -1026,17 +1032,17 @@
     async function loadJailConfigPage() {
       const listEl = document.getElementById("jailConfigList");
       if (!listEl) return;
-      listEl.innerHTML = "<li class=\"muted\">Loading...</li>";
+      listEl.innerHTML = "<li><span class=\"muted\">Loading jail config...</span></li>";
       try {
         const r = await fetch("/api/jail-config", fetchOpts({ headers: headers() }));
         if (!r.ok) {
           const errText = await r.text().catch(() => r.status);
-          listEl.innerHTML = `<li class="muted">Error ${r.status}: ${esc(String(errText).slice(0, 200))}</li>`;
+          listEl.innerHTML = `<li><span class="muted">Error ${r.status}: ${esc(String(errText).slice(0, 200))}</span></li>`;
           return;
         }
         const data = await r.json();
         if (!data.configs || data.configs.length === 0) {
-          listEl.innerHTML = "<li class=\"muted\">No servers configured yet. Run <code>/jail-setup</code> in Discord.</li>";
+          listEl.innerHTML = "<li><span class=\"muted\">No servers configured yet. Run <code>/jail-setup</code> in Discord.</span></li>";
           return;
         }
         listEl.innerHTML = "";
@@ -1068,7 +1074,7 @@
         }
       } catch (e) {
         console.error("loadJailConfigPage error:", e);
-        listEl.innerHTML = `<li class="muted">Failed to load jail config: ${esc(e.message)}</li>`;
+        listEl.innerHTML = `<li><span class="muted">Failed to load jail config: ${esc(e.message)}</span></li>`;
       }
       try {
         const dr = await fetch("/api/debug/data", fetchOpts({ headers: headers() }));
