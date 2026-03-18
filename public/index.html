@@ -410,6 +410,7 @@
       </div>
       <h3>Configured servers</h3>
       <ul id="jailConfigList"></ul>
+      <p id="jailDebugInfo" class="muted" style="font-size: 0.75rem; margin-top: 0.5rem;"></p>
     </div>
   </div>
 
@@ -982,13 +983,15 @@
       } catch (_) {}
       if (guildSelect.options.length <= 1) {
         try {
-          const r = await fetch("/api/channels", fetchOpts({ headers: headers() }));
-          const data = await r.json();
-          const guilds = Array.isArray(data) ? data : (data.guilds || []);
-          for (const g of guilds) {
-            const o = document.createElement("option");
-            o.value = g.id; o.textContent = g.name;
-            guildSelect.appendChild(o);
+          const r = await fetch("/api/guilds", fetchOpts({ headers: headers() }));
+          if (r.ok) {
+            const data = await r.json();
+            const guilds = data.guilds || [];
+            for (const g of guilds) {
+              const o = document.createElement("option");
+              o.value = g.id; o.textContent = g.name;
+              guildSelect.appendChild(o);
+            }
           }
         } catch (_) {}
       }
@@ -998,6 +1001,10 @@
         if (!gid) { lbList.innerHTML = "<li class=\"muted\">Select a server to see the leaderboard.</li>"; return; }
         try {
           const r = await fetch(`/api/economy/leaderboard/${gid}`, fetchOpts({ headers: headers() }));
+          if (!r.ok) {
+            lbList.innerHTML = `<li class="muted">Error ${r.status}</li>`;
+            return;
+          }
           const data = await r.json();
           if (!data.leaderboard || data.leaderboard.length === 0) {
             lbList.innerHTML = "<li class=\"muted\">No one has earned coins yet.</li>";
@@ -1008,8 +1015,8 @@
             li.innerHTML = `<strong>${esc(entry.username)}</strong> — ${entry.total.toLocaleString()} coins`;
             lbList.appendChild(li);
           }
-        } catch (_) {
-          lbList.innerHTML = "<li class=\"muted\">Failed to load leaderboard.</li>";
+        } catch (e) {
+          lbList.innerHTML = `<li class="muted">Failed to load leaderboard: ${esc(e.message)}</li>`;
         }
       };
       guildSelect.onchange = loadLb;
@@ -1063,6 +1070,14 @@
         console.error("loadJailConfigPage error:", e);
         listEl.innerHTML = `<li class="muted">Failed to load jail config: ${esc(e.message)}</li>`;
       }
+      try {
+        const dr = await fetch("/api/debug/data", fetchOpts({ headers: headers() }));
+        if (dr.ok) {
+          const dd = await dr.json();
+          const el = document.getElementById("jailDebugInfo");
+          if (el) el.textContent = `Data dir: ${dd.dataDir} | Jail file exists: ${dd.jailConfigExists} | Guilds cached: ${dd.guildsInCache} | Config keys: ${dd.jailConfig ? Object.keys(dd.jailConfig).length : 0}`;
+        }
+      } catch (_) {}
     }
 
     async function loadDeletedLogConfig() {

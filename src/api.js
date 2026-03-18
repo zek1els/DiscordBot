@@ -442,6 +442,44 @@ export function createApi(client) {
     }
   });
 
+  /** Simple guild list (no channel info, less likely to fail) */
+  app.get("/api/guilds", (req, res) => {
+    try {
+      const guilds = client.guilds.cache.map((g) => ({ id: g.id, name: g.name }));
+      res.json({ guilds });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Debug: show raw data dir and file contents for diagnosing persistence issues */
+  app.get("/api/debug/data", (req, res) => {
+    try {
+      const { existsSync, readFileSync } = require("fs");
+      const dir = getDataDir();
+      const jailPath = require("path").join(dir, "jail-config.json");
+      const ecoPath = require("path").join(dir, "economy.json");
+      const jailExists = existsSync(jailPath);
+      const ecoExists = existsSync(ecoPath);
+      let jailRaw = null, ecoKeys = null;
+      if (jailExists) try { jailRaw = JSON.parse(readFileSync(jailPath, "utf8")); } catch (_) { jailRaw = "parse error"; }
+      if (ecoExists) try { ecoKeys = Object.keys(JSON.parse(readFileSync(ecoPath, "utf8"))); } catch (_) { ecoKeys = "parse error"; }
+      res.json({
+        dataDir: dir,
+        railwayEnv: process.env.RAILWAY_ENVIRONMENT || null,
+        dataDirEnv: process.env.DATA_DIR || null,
+        jailConfigExists: jailExists,
+        jailConfig: jailRaw,
+        economyExists: ecoExists,
+        economyUserCount: Array.isArray(ecoKeys) ? ecoKeys.length : ecoKeys,
+        guildsInCache: client.guilds.cache.size,
+        guildIds: client.guilds.cache.map((g) => g.id),
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   /** Economy: leaderboard for a guild */
   app.get("/api/economy/leaderboard/:guildId", async (req, res) => {
     try {
