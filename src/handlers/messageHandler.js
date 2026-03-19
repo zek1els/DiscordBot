@@ -310,7 +310,11 @@ export async function handleMessage(message) {
     let durationLabel = null;
     if (commandName === "jail" && durationArg) {
       durationMs = parseTime(durationArg);
-      if (durationMs) durationLabel = formatMs(durationMs);
+      if (durationMs) {
+        const MAX_JAIL_MS = 28 * 24 * 60 * 60 * 1000; // 28 days max
+        if (durationMs > MAX_JAIL_MS) durationMs = MAX_JAIL_MS;
+        durationLabel = formatMs(durationMs);
+      }
     }
 
     try {

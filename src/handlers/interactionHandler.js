@@ -1,3 +1,4 @@
+import { MessageFlags } from "discord.js";
 import { getMessageOptionsFromInteraction } from "../commands.js";
 import { buildMessagePayload, hasMessageContent } from "../embedBuilder.js";
 import { save as saveMessage, get as getSavedMessage, list as listSavedMessages, remove as removeSavedMessage } from "../savedMessages.js";
@@ -20,7 +21,7 @@ export async function handleInteraction(interaction) {
   if (interaction.commandName === "level") {
     const user = interaction.options.getUser("user") || interaction.user;
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const stats = getStats(guildId, user.id);
     const barLength = 14;
     const filled = Math.round((stats.currentXp / stats.neededXp) * barLength);
@@ -43,10 +44,10 @@ export async function handleInteraction(interaction) {
   // --- /leaderboard ---
   if (interaction.commandName === "leaderboard") {
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const type = interaction.options.getString("type") || "xp";
     const lb = getLeaderboard(guildId, type, 15);
-    if (lb.length === 0) return interaction.reply({ content: "No data yet. Start chatting!", ephemeral: true });
+    if (lb.length === 0) return interaction.reply({ content: "No data yet. Start chatting!", flags: MessageFlags.Ephemeral });
 
     const medals = ["🥇", "🥈", "🥉"];
     const title = { xp: "XP Leaderboard", messages: "Message Leaderboard", vc: "Voice Chat Leaderboard" }[type];
@@ -73,12 +74,12 @@ export async function handleInteraction(interaction) {
   // --- /warn ---
   if (interaction.commandName === "warn") {
     if (!interaction.memberPermissions?.has("ModerateMembers")) {
-      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", ephemeral: true });
+      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", flags: MessageFlags.Ephemeral });
     }
     const user = interaction.options.getUser("user");
     const reason = interaction.options.getString("reason");
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const { warning, total } = addWarning(guildId, user.id, reason, interaction.user.id);
     auditLog(guildId, "warn", { userId: user.id, moderatorId: interaction.user.id, reason });
     return interaction.reply({
@@ -101,10 +102,10 @@ export async function handleInteraction(interaction) {
   if (interaction.commandName === "warnings") {
     const user = interaction.options.getUser("user");
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const warns = getWarnings(guildId, user.id);
     if (warns.length === 0) {
-      return interaction.reply({ content: `<@${user.id}> has no warnings.`, ephemeral: true });
+      return interaction.reply({ content: `<@${user.id}> has no warnings.`, flags: MessageFlags.Ephemeral });
     }
     const lines = warns.map((w, i) => {
       const date = new Date(w.timestamp).toLocaleDateString();
@@ -117,18 +118,18 @@ export async function handleInteraction(interaction) {
         description: lines.join("\n\n"),
         footer: { text: `${warns.length} warning(s)` },
       }],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 
   // --- /clearwarnings ---
   if (interaction.commandName === "clearwarnings") {
     if (!interaction.memberPermissions?.has("ModerateMembers")) {
-      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", ephemeral: true });
+      return interaction.reply({ content: "You need **Moderate Members** permission to use this.", flags: MessageFlags.Ephemeral });
     }
     const user = interaction.options.getUser("user");
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const count = clearWarnings(guildId, user.id);
     auditLog(guildId, "clear_warnings", { userId: user.id, moderatorId: interaction.user.id, count });
     return interaction.reply({
@@ -138,12 +139,12 @@ export async function handleInteraction(interaction) {
 
   if (interaction.commandName === "jail-setup") {
     if (!interaction.memberPermissions?.has("ManageRoles")) {
-      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", flags: MessageFlags.Ephemeral });
     }
     const memberRole = interaction.options.getRole("member_role");
     const criminalRole = interaction.options.getRole("criminal_role");
     if (!memberRole || !criminalRole) {
-      return interaction.reply({ content: "Both roles are required.", ephemeral: true });
+      return interaction.reply({ content: "Both roles are required.", flags: MessageFlags.Ephemeral });
     }
     const allowedRoles = [
       interaction.options.getRole("allowed_role_1"),
@@ -161,17 +162,17 @@ export async function handleInteraction(interaction) {
         ephemeral: false,
       });
     } catch (e) {
-      return interaction.reply({ content: "Failed to save jail config.", ephemeral: true });
+      return interaction.reply({ content: "Failed to save jail config.", flags: MessageFlags.Ephemeral });
     }
   }
 
   if (interaction.commandName === "jail-assign-all") {
     if (!interaction.memberPermissions?.has("ManageRoles")) {
-      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Roles** permission to use this.", flags: MessageFlags.Ephemeral });
     }
     const cfg = getJailConfig(interaction.guildId);
     if (!cfg?.memberRoleId) {
-      return interaction.reply({ content: "Jail not configured. Run `/jail-setup` first.", ephemeral: true });
+      return interaction.reply({ content: "Jail not configured. Run `/jail-setup` first.", flags: MessageFlags.Ephemeral });
     }
     await interaction.deferReply();
     try {
@@ -200,7 +201,7 @@ export async function handleInteraction(interaction) {
     const channel = interaction.channel;
     const guildId = interaction.guildId;
     if (!channel || !guildId) {
-      return interaction.reply({ content: "This command must be used in a server channel.", ephemeral: true });
+      return interaction.reply({ content: "This command must be used in a server channel.", flags: MessageFlags.Ephemeral });
     }
     if (sub === "here") {
       try {
@@ -210,7 +211,7 @@ export async function handleInteraction(interaction) {
         ephemeral: false,
       });
       } catch (e) {
-        return interaction.reply({ content: "Failed to save. The bot may not have write access to its data directory.", ephemeral: true });
+        return interaction.reply({ content: "Failed to save. The bot may not have write access to its data directory.", flags: MessageFlags.Ephemeral });
       }
     }
     if (sub === "off") {
@@ -218,7 +219,7 @@ export async function handleInteraction(interaction) {
         removeLogChannel(channel.id);
         return interaction.reply({ content: "Stopped sending deleted message logs to this channel.", ephemeral: false });
       } catch (e) {
-        return interaction.reply({ content: "Failed to save.", ephemeral: true });
+        return interaction.reply({ content: "Failed to save.", flags: MessageFlags.Ephemeral });
       }
     }
     return;
@@ -241,7 +242,7 @@ export async function handleInteraction(interaction) {
         if (!payload) {
           return interaction.reply({
             content: `Saved message \`${savedMessageName}\` not found. Use \`/message list\` to see names.`,
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
       } else {
@@ -249,7 +250,7 @@ export async function handleInteraction(interaction) {
         if (!hasMessageContent(opts)) {
           return interaction.reply({
             content: "Provide **saved_message** or at least **content** / **embed_title** / **embed_description**.",
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
         payload = buildMessagePayload(opts);
@@ -269,13 +270,13 @@ export async function handleInteraction(interaction) {
         });
         return interaction.reply({
           content: `Scheduled: **${label}** in ${channel}. Use \`/schedule list\` to see it. ID: \`${id}\`.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } catch (err) {
         console.error(err);
         return interaction.reply({
           content: `Failed to create schedule: ${err.message}`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -283,14 +284,14 @@ export async function handleInteraction(interaction) {
     if (sub === "list") {
       const schedules = listSchedules();
       if (schedules.length === 0) {
-        return interaction.reply({ content: "No scheduled messages.", ephemeral: true });
+        return interaction.reply({ content: "No scheduled messages.", flags: MessageFlags.Ephemeral });
       }
       const lines = schedules.map(
         (s) => `• \`${s.id}\` — ${s.label}\n  Channel: <#${s.channelId}> — ${s.preview || "(embed)"}…`
       );
       return interaction.reply({
         content: `**Scheduled messages:**\n${lines.join("\n")}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -300,10 +301,10 @@ export async function handleInteraction(interaction) {
       if (!removed) {
         return interaction.reply({
           content: `Schedule \`${id}\` not found. Use \`/schedule list\` to see IDs.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
-      return interaction.reply({ content: `Schedule \`${id}\` removed.`, ephemeral: true });
+      return interaction.reply({ content: `Schedule \`${id}\` removed.`, flags: MessageFlags.Ephemeral });
     }
     return;
   }
@@ -316,7 +317,7 @@ export async function handleInteraction(interaction) {
       if (!hasMessageContent(opts)) {
         return interaction.reply({
           content: "Provide at least **content** or **embed_title** / **embed_description** (or author, footer, image, etc.).",
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       try {
@@ -324,12 +325,12 @@ export async function handleInteraction(interaction) {
         saveMessage(name, payload);
         return interaction.reply({
           content: `Saved template \`${name}\`. Use \`/message send\` or \`/schedule create\` with saved_message \`${name}\`.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } catch (err) {
         return interaction.reply({
           content: `Failed to save: ${err.message}`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -340,31 +341,31 @@ export async function handleInteraction(interaction) {
       if (!payload) {
         return interaction.reply({
           content: `Saved message \`${name}\` not found. Use \`/message list\`.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       try {
         await channel.send(payload);
         return interaction.reply({
           content: `Sent \`${name}\` to ${channel}.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } catch (err) {
         return interaction.reply({
           content: `Failed to send: ${err.message}`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
     if (sub === "list") {
       const items = listSavedMessages();
       if (items.length === 0) {
-        return interaction.reply({ content: "No saved message templates.", ephemeral: true });
+        return interaction.reply({ content: "No saved message templates.", flags: MessageFlags.Ephemeral });
       }
       const lines = items.map((m) => `• \`${m.name}\` — ${m.preview}`);
       return interaction.reply({
         content: `**Saved templates:**\n${lines.join("\n")}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
     if (sub === "delete") {
@@ -373,12 +374,12 @@ export async function handleInteraction(interaction) {
       if (!removed) {
         return interaction.reply({
           content: `Template \`${name}\` not found.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       return interaction.reply({
         content: `Template \`${name}\` deleted.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
     return;
@@ -387,11 +388,11 @@ export async function handleInteraction(interaction) {
   // --- /purge ---
   if (interaction.commandName === "purge") {
     if (!interaction.memberPermissions?.has("ManageMessages")) {
-      return interaction.reply({ content: "You need **Manage Messages** permission to use this.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Messages** permission to use this.", flags: MessageFlags.Ephemeral });
     }
     const amount = interaction.options.getInteger("amount");
     const targetUser = interaction.options.getUser("user");
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     try {
       let deleted;
       if (targetUser) {
@@ -412,7 +413,7 @@ export async function handleInteraction(interaction) {
   // --- /starboard ---
   if (interaction.commandName === "starboard") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const sub = interaction.options.getSubcommand();
     if (sub === "setup") {
@@ -431,7 +432,7 @@ export async function handleInteraction(interaction) {
   // --- /welcome ---
   if (interaction.commandName === "welcome") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const sub = interaction.options.getSubcommand();
     if (sub === "set") {
@@ -450,7 +451,7 @@ export async function handleInteraction(interaction) {
   // --- /leave ---
   if (interaction.commandName === "leave") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const sub = interaction.options.getSubcommand();
     if (sub === "set") {
@@ -469,7 +470,7 @@ export async function handleInteraction(interaction) {
   // --- /ticket-setup ---
   if (interaction.commandName === "ticket-setup") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const category = interaction.options.getChannel("category");
     const supportRole = interaction.options.getRole("support_role");
@@ -484,7 +485,7 @@ export async function handleInteraction(interaction) {
   // --- /confess-setup ---
   if (interaction.commandName === "confess-setup") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const channel = interaction.options.getChannel("channel");
     setConfessionChannel(interaction.guildId, channel.id);
@@ -494,7 +495,7 @@ export async function handleInteraction(interaction) {
   // --- /confess-off ---
   if (interaction.commandName === "confess-off") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     disableConfessions(interaction.guildId);
     return interaction.reply({ content: "Confessions disabled.", ephemeral: false });
@@ -503,25 +504,25 @@ export async function handleInteraction(interaction) {
   // --- /confess ---
   if (interaction.commandName === "confess") {
     const guildId = interaction.guildId;
-    if (!guildId) return interaction.reply({ content: "Use this in a server.", ephemeral: true });
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
     const text = interaction.options.getString("message");
     if (!text || text.trim().length === 0) {
-      return interaction.reply({ content: "Your confession can't be empty.", ephemeral: true });
+      return interaction.reply({ content: "Your confession can't be empty.", flags: MessageFlags.Ephemeral });
     }
     if (text.length > 2000) {
-      return interaction.reply({ content: "Confession is too long (max 2000 characters).", ephemeral: true });
+      return interaction.reply({ content: "Confession is too long (max 2000 characters).", flags: MessageFlags.Ephemeral });
     }
     const result = await postConfession(interaction.client, guildId, text);
     if (!result.ok) {
-      return interaction.reply({ content: `❌ ${result.error}`, ephemeral: true });
+      return interaction.reply({ content: `❌ ${result.error}`, flags: MessageFlags.Ephemeral });
     }
-    return interaction.reply({ content: "✅ Your confession has been posted anonymously.", ephemeral: true });
+    return interaction.reply({ content: "✅ Your confession has been posted anonymously.", flags: MessageFlags.Ephemeral });
   }
 
   // --- /modlog-setup ---
   if (interaction.commandName === "modlog-setup") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     const channel = interaction.options.getChannel("channel");
     setModLogChannel(interaction.guildId, channel.id);
@@ -531,7 +532,7 @@ export async function handleInteraction(interaction) {
   // --- /modlog-off ---
   if (interaction.commandName === "modlog-off") {
     if (!interaction.memberPermissions?.has("ManageGuild")) {
-      return interaction.reply({ content: "You need **Manage Server** permission.", ephemeral: true });
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
     }
     disableModLog(interaction.guildId);
     return interaction.reply({ content: "Mod logging disabled.", ephemeral: false });
@@ -544,7 +545,7 @@ export async function handleInteraction(interaction) {
   if (!hasMessageContent(opts)) {
     return interaction.reply({
       content: "Provide at least **content** or **embed_title** / **embed_description** (or author, footer, image, etc.).",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
   const payload = buildMessagePayload(opts);
@@ -553,13 +554,13 @@ export async function handleInteraction(interaction) {
     await channel.send(payload);
     await interaction.reply({
       content: `Message sent to ${channel}.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   } catch (err) {
     console.error(err);
     await interaction.reply({
       content: `Failed to send: ${err.message}`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 }
