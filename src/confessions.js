@@ -1,27 +1,32 @@
-import { createStore } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
-const store = createStore("confessions");
+const store = createStore("confessions.json");
 
 /**
  * Get confession config for a guild.
  * @returns {{ channelId: string } | null}
  */
 export function getConfessionConfig(guildId) {
-  return store.get(guildId) || null;
+  const data = store.load();
+  return data[guildId] || null;
 }
 
 /**
  * Set the confessions channel for a guild.
  */
 export function setConfessionChannel(guildId, channelId) {
-  store.set(guildId, { channelId });
+  const data = store.load();
+  data[guildId] = { channelId };
+  store.save(data);
 }
 
 /**
  * Disable confessions for a guild.
  */
 export function disableConfessions(guildId) {
-  store.delete(guildId);
+  const data = store.load();
+  delete data[guildId];
+  store.save(data);
 }
 
 let confessionCounter = new Map();

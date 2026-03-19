@@ -10,7 +10,15 @@ import {
 } from "@discordjs/voice";
 import play from "play-dl";
 import { spawn } from "child_process";
-import ffmpegStatic from "ffmpeg-static";
+import { createRequire } from "module";
+
+let ffmpegStatic = null;
+try {
+  const require = createRequire(import.meta.url);
+  ffmpegStatic = require("ffmpeg-static");
+} catch {
+  // ffmpeg-static not installed – fall back to system ffmpeg
+}
 
 const FFMPEG = ffmpegStatic || "ffmpeg";
 

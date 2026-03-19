@@ -1,27 +1,32 @@
-import { createStore } from "./dataDir.js";
+import { createStore } from "./storage.js";
 
-const store = createStore("modlog");
+const store = createStore("modlog.json");
 
 /**
  * Get mod log channel for a guild.
  * @returns {string|null} channelId
  */
 export function getModLogChannel(guildId) {
-  return store.get(guildId)?.channelId || null;
+  const data = store.load();
+  return data[guildId]?.channelId || null;
 }
 
 /**
  * Set the mod log channel for a guild.
  */
 export function setModLogChannel(guildId, channelId) {
-  store.set(guildId, { channelId });
+  const data = store.load();
+  data[guildId] = { channelId };
+  store.save(data);
 }
 
 /**
  * Disable mod logging for a guild.
  */
 export function disableModLog(guildId) {
-  store.delete(guildId);
+  const data = store.load();
+  delete data[guildId];
+  store.save(data);
 }
 
 const COLORS = {
