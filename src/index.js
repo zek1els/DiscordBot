@@ -21,7 +21,7 @@ import { sendModLog } from "./modLog.js";
 
 config();
 
-const WEB_ONLY = process.env.WEB_ONLY === "true";
+const WEB_ONLY = (process.env.WEB_ONLY || "").toLowerCase() === "true";
 
 function ensureDataStorage() {
   migrateCustomCommands();
