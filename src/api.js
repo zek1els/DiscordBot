@@ -10,8 +10,7 @@ import { hasAnyUser } from "./users.js";
 import { getLeaderboard as getLevelLeaderboard, getStats as getLevelStats, getAllGuildStats } from "./levels.js";
 import { getAllGuildWarnings, getWarnings } from "./warnings.js";
 import { getLog as getAuditLog } from "./auditLog.js";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { getDataDir } from "./dataDir.js";
+import { createStore } from "./storage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerScheduleRoutes } from "./routes/schedules.js";
 import { registerAdminRoutes } from "./routes/admin.js";
@@ -29,22 +28,17 @@ const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
 const sessions = new Map();
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, matches cookie Max-Age
 
-function getSessionsPath() {
-  return join(getDataDir(), "sessions.json");
-}
+const sessionStore = createStore("sessions.json");
 
 function loadSessions() {
   try {
-    const p = getSessionsPath();
-    if (existsSync(p)) {
-      const data = JSON.parse(readFileSync(p, "utf8"));
-      const now = Date.now();
-      for (const [token, session] of Object.entries(data)) {
-        if (session.expiresAt && session.expiresAt < now) continue;
-        sessions.set(token, session);
-      }
-      console.log(`Loaded ${sessions.size} session(s) from disk.`);
+    const data = sessionStore.load();
+    const now = Date.now();
+    for (const [token, session] of Object.entries(data)) {
+      if (session.expiresAt && session.expiresAt < now) continue;
+      sessions.set(token, session);
     }
+    console.log(`Loaded ${sessions.size} session(s).`);
   } catch (e) {
     console.error("Failed to load sessions:", e);
   }
@@ -52,8 +46,7 @@ function loadSessions() {
 
 function persistSessions() {
   try {
-    const obj = Object.fromEntries(sessions);
-    writeFileSync(getSessionsPath(), JSON.stringify(obj, null, 2), "utf8");
+    sessionStore.save(Object.fromEntries(sessions));
   } catch (e) {
     console.error("Failed to persist sessions:", e);
   }

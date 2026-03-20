@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "fs";
-import { join } from "path";
 import { listUsers, deleteUser } from "../users.js";
+import { createStore } from "../storage.js";
 import { getDataDir } from "../dataDir.js";
 
 /**
@@ -56,21 +55,14 @@ export function registerAdminRoutes(app, client, { isAdmin, getCurrentUser, sess
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
     try {
       const dir = getDataDir();
-      const jailPath = join(dir, "jail-config.json");
-      const ecoPath = join(dir, "economy.json");
-      const jailExists = existsSync(jailPath);
-      const ecoExists = existsSync(ecoPath);
-      let jailRaw = null, ecoKeys = null;
-      if (jailExists) try { jailRaw = JSON.parse(readFileSync(jailPath, "utf8")); } catch (_) { jailRaw = "parse error"; }
-      if (ecoExists) try { ecoKeys = Object.keys(JSON.parse(readFileSync(ecoPath, "utf8"))); } catch (_) { ecoKeys = "parse error"; }
+      const jailConfig = createStore("jail-config.json").load();
+      const economy = createStore("economy.json").load();
       res.json({
         dataDir: dir,
         railwayEnv: process.env.RAILWAY_ENVIRONMENT || null,
         dataDirEnv: process.env.DATA_DIR || null,
-        jailConfigExists: jailExists,
-        jailConfig: jailRaw,
-        economyExists: ecoExists,
-        economyUserCount: Array.isArray(ecoKeys) ? ecoKeys.length : ecoKeys,
+        jailConfig,
+        economyUserCount: Object.keys(economy).length,
         guildsInCache: client.guilds.cache.size,
         guildIds: client.guilds.cache.map((g) => g.id),
       });
