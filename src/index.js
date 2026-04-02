@@ -18,6 +18,12 @@ import { handleMemberJoin, handleMemberLeave } from "./welcomeConfig.js";
 import { handleStarboardReaction } from "./starboard.js";
 import { recordDeleted, recordEdited } from "./snipe.js";
 import { sendModLog } from "./modLog.js";
+import { handleReactionAdd, handleReactionRemove } from "./reactionRoles.js";
+import { handleVoiceUpdate as handleTempVoiceUpdate } from "./tempVoice.js";
+import { trackEvent, setAnalyticsClient, aggregateOldData } from "./analytics.js";
+import { recoverOfflineMessages, startHeartbeat } from "./offlineCache.js";
+import { cacheGuild, getCacheStatus } from "./messageCache.js";
+import { restoreTimedJails } from "./timedJails.js";
 
 const WEB_ONLY = (process.env.WEB_ONLY || "").toLowerCase() === "true";
 
@@ -46,6 +52,7 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -53,8 +60,9 @@ const client = new Client({
 client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
-  // Pass client reference to message handler for utility commands
+  // Pass client reference to message handler and analytics
   setMessageClient(client);
+  setAnalyticsClient(client);
 
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   try {
@@ -77,11 +85,32 @@ client.once("clientReady", async () => {
   const logChannelCount = getAllLogChannels().length;
   console.log(`Data directory: ${dataDir} (deleted-log channels: ${logChannelCount}, custom commands: ${customCount}).`);
 
+  // Fetch all guild members so presence data is cached (requires GuildPresences + GuildMembers intents)
+  for (const [guildId, guild] of client.guilds.cache) {
+    try {
+      await guild.members.fetch({ withPresences: true });
+      const online = guild.members.cache.filter((m) => m.presence?.status && m.presence.status !== "offline").size;
+      console.log(`Fetched ${guild.members.cache.size} members for ${guild.name} (${online} online).`);
+    } catch (e) {
+      console.warn(`Failed to fetch members for guild ${guild.name}:`, e.message);
+    }
+  }
+
   // Initialise subsystems
   initScheduler(client);
   initReminders(client);
   initGiveaways(client);
   await initMusic().catch((e) => console.warn("Music init:", e.message));
+
+  // Aggregate old analytics data (>30 days → daily summaries)
+  aggregateOldData();
+
+  // Restore timed jails from database
+  restoreTimedJails(client);
+
+  // Recover messages sent while bot was offline & start heartbeat
+  await recoverOfflineMessages(client).catch((e) => console.warn("Offline cache recovery:", e.message));
+  startHeartbeat();
 
   const port = Number(process.env.PORT) || 3000;
   const api = createApi(client);
@@ -98,6 +127,11 @@ client.on("guildCreate", async (guild) => {
   } catch (e) {
     console.error("Failed to register slash commands for new guild:", e);
   }
+  // Auto-cache message history for new guild (runs in background)
+  console.log(`[MessageCache] Auto-caching messages for new guild: ${guild.name}`);
+  cacheGuild(guild).then((r) => {
+    console.log(`[MessageCache] Auto-cache done for ${guild.name}: ${r.totalMessages} messages from ${r.channelsCached} channels`);
+  }).catch((e) => console.warn(`[MessageCache] Auto-cache failed for ${guild.name}:`, e.message));
 });
 
 client.on("guildMemberAdd", async (member) => {
@@ -112,12 +146,14 @@ client.on("guildMemberAdd", async (member) => {
   }
   // Welcome message
   handleMemberJoin(member);
+  trackEvent(member.guild.id, "member_join", { userId: member.id });
   // Mod log
   sendModLog(client, member.guild.id, "join", { userId: member.id, extra: `Account created: <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>` });
 });
 
 client.on("guildMemberRemove", (member) => {
   handleMemberLeave(member);
+  trackEvent(member.guild.id, "member_leave", { userId: member.id });
   sendModLog(client, member.guild.id, "leave", { userId: member.id });
 });
 
@@ -182,6 +218,7 @@ client.on("messageUpdate", (oldMessage, newMessage) => {
 
 client.on("voiceStateUpdate", (oldState, newState) => {
   handleVoiceStateUpdate(oldState, newState);
+  handleTempVoiceUpdate(oldState, newState);
   // Mod log voice events
   const guildId = newState.guild.id;
   const userId = newState.member?.id;
@@ -196,9 +233,14 @@ client.on("voiceStateUpdate", (oldState, newState) => {
 });
 client.on("interactionCreate", (interaction) => handleInteraction(interaction));
 
-// Starboard — react to star reactions
-client.on("messageReactionAdd", (reaction) => {
+// Starboard + reaction roles
+client.on("messageReactionAdd", (reaction, user) => {
   handleStarboardReaction(reaction, client);
+  handleReactionAdd(reaction, user);
+});
+
+client.on("messageReactionRemove", (reaction, user) => {
+  handleReactionRemove(reaction, user);
 });
 
 const token = process.env.DISCORD_TOKEN;

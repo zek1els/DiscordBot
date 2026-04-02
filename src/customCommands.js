@@ -1,51 +1,48 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
 const PREFIX = "!";
-const store = createStore("custom-commands.json");
+
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  getDb().exec(`CREATE TABLE IF NOT EXISTS custom_commands (
+    guild_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    template TEXT NOT NULL,
+    PRIMARY KEY (guild_id, name)
+  )`);
+}
 
 function normalizeName(name) {
   return String(name).trim().toLowerCase().replace(/\s+/g, "-");
 }
 
-function getGuildCommands(guildId) {
-  return store.load()[guildId] || [];
-}
-
-function setGuildCommands(guildId, commands) {
-  const all = store.load();
-  all[guildId] = commands;
-  store.save(all);
-}
-
 export function list(guildId) {
-  return getGuildCommands(guildId);
+  ensureTable();
+  return getDb().prepare("SELECT name, template FROM custom_commands WHERE guild_id = ?").all(guildId);
 }
 
 export function get(name, guildId) {
+  ensureTable();
   const key = normalizeName(name);
-  return getGuildCommands(guildId).find((c) => normalizeName(c.name) === key) || null;
+  return getDb().prepare("SELECT name, template FROM custom_commands WHERE guild_id = ? AND name = ?").get(guildId, key) || null;
 }
 
 export function add(name, template, guildId) {
+  ensureTable();
   const key = normalizeName(name);
   if (!key) throw new Error("Command name cannot be empty");
   if (!guildId) throw new Error("Guild ID required");
-  const commands = getGuildCommands(guildId);
-  const existing = commands.findIndex((c) => normalizeName(c.name) === key);
-  const entry = { name: key, template: String(template ?? "").trim() || " " };
-  if (existing >= 0) commands[existing] = entry;
-  else commands.push(entry);
-  setGuildCommands(guildId, commands);
+  getDb().prepare("INSERT OR REPLACE INTO custom_commands (guild_id, name, template) VALUES (?, ?, ?)")
+    .run(guildId, key, String(template ?? "").trim() || " ");
   return key;
 }
 
 export function remove(name, guildId) {
+  ensureTable();
   const key = normalizeName(name);
-  const before = getGuildCommands(guildId);
-  const after = before.filter((c) => normalizeName(c.name) !== key);
-  if (after.length === before.length) return false;
-  setGuildCommands(guildId, after);
-  return true;
+  return getDb().prepare("DELETE FROM custom_commands WHERE guild_id = ? AND name = ?").run(guildId, key).changes > 0;
 }
 
 export function getPrefix() {
@@ -53,14 +50,10 @@ export function getPrefix() {
 }
 
 export function migrateIfNeeded() {
-  const data = store.load();
-  if (Array.isArray(data) && data.length > 0) {
-    store.save({ _migrated: data });
-    console.log(`Migrated ${data.length} custom commands from flat array to per-guild format (stored under _migrated).`);
-  }
+  // No-op: migration from old format no longer needed
 }
 
 export function totalCount() {
-  const all = store.load();
-  return Object.values(all).reduce((sum, cmds) => sum + (Array.isArray(cmds) ? cmds.length : 0), 0);
+  ensureTable();
+  return getDb().prepare("SELECT COUNT(*) AS cnt FROM custom_commands").get().cnt;
 }

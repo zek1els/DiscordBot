@@ -1,59 +1,53 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 import { randomBytes } from "crypto";
 
-const store = createStore("warnings.json");
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  const db = getDb();
+  db.exec(`CREATE TABLE IF NOT EXISTS warnings (
+    id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    reason TEXT,
+    moderator_id TEXT,
+    timestamp TEXT NOT NULL
+  )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_warnings_guild_user ON warnings (guild_id, user_id)`);
+}
 
 export function addWarning(guildId, userId, reason, moderatorId) {
-  const data = store.load();
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][userId]) data[guildId][userId] = [];
+  ensureTable();
+  const db = getDb();
   const warning = {
     id: randomBytes(4).toString("hex"),
     reason,
     moderatorId,
     timestamp: new Date().toISOString(),
   };
-  data[guildId][userId].push(warning);
-  store.save(data);
-  return { warning, total: data[guildId][userId].length };
+  db.prepare("INSERT INTO warnings (id, guild_id, user_id, reason, moderator_id, timestamp) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(warning.id, guildId, userId, reason, moderatorId, warning.timestamp);
+  const total = db.prepare("SELECT COUNT(*) AS cnt FROM warnings WHERE guild_id = ? AND user_id = ?").get(guildId, userId).cnt;
+  return { warning, total };
 }
 
 export function getWarnings(guildId, userId) {
-  const data = store.load();
-  return data[guildId]?.[userId] || [];
+  ensureTable();
+  return getDb().prepare("SELECT id, reason, moderator_id AS moderatorId, timestamp FROM warnings WHERE guild_id = ? AND user_id = ? ORDER BY rowid ASC").all(guildId, userId);
 }
 
 export function clearWarnings(guildId, userId) {
-  const data = store.load();
-  if (!data[guildId]?.[userId]) return 0;
-  const count = data[guildId][userId].length;
-  delete data[guildId][userId];
-  store.save(data);
-  return count;
+  ensureTable();
+  return getDb().prepare("DELETE FROM warnings WHERE guild_id = ? AND user_id = ?").run(guildId, userId).changes;
 }
 
 export function removeWarning(guildId, userId, warningId) {
-  const data = store.load();
-  const list = data[guildId]?.[userId];
-  if (!list) return false;
-  const idx = list.findIndex((w) => w.id === warningId);
-  if (idx === -1) return false;
-  list.splice(idx, 1);
-  if (list.length === 0) delete data[guildId][userId];
-  store.save(data);
-  return true;
+  ensureTable();
+  return getDb().prepare("DELETE FROM warnings WHERE id = ? AND guild_id = ? AND user_id = ?").run(warningId, guildId, userId).changes > 0;
 }
 
 export function getAllGuildWarnings(guildId) {
-  const data = store.load();
-  const guild = data[guildId];
-  if (!guild) return [];
-  const result = [];
-  for (const [userId, warnings] of Object.entries(guild)) {
-    for (const w of warnings) {
-      result.push({ userId, ...w });
-    }
-  }
-  result.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  return result;
+  ensureTable();
+  return getDb().prepare("SELECT id, user_id AS userId, reason, moderator_id AS moderatorId, timestamp FROM warnings WHERE guild_id = ? ORDER BY rowid DESC").all(guildId);
 }

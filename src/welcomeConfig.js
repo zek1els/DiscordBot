@@ -1,65 +1,60 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
-const store = createStore("welcome-config.json");
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  getDb().exec(`CREATE TABLE IF NOT EXISTS welcome_config (
+    guild_id TEXT PRIMARY KEY,
+    welcome_channel_id TEXT,
+    welcome_message TEXT,
+    leave_channel_id TEXT,
+    leave_message TEXT
+  )`);
+}
 
-/**
- * Get welcome/leave config for a guild.
- * @returns {{ welcomeChannelId?: string, welcomeMessage?: string, leaveChannelId?: string, leaveMessage?: string } | null}
- */
 export function getWelcomeConfig(guildId) {
-  return store.load()[guildId] || null;
+  ensureTable();
+  const row = getDb().prepare("SELECT * FROM welcome_config WHERE guild_id = ?").get(guildId);
+  if (!row) return null;
+  return {
+    welcomeChannelId: row.welcome_channel_id, welcomeMessage: row.welcome_message,
+    leaveChannelId: row.leave_channel_id, leaveMessage: row.leave_message,
+  };
 }
 
-/**
- * Set welcome message config.
- * Placeholders: {user} {username} {server} {memberCount}
- */
 export function setWelcomeMessage(guildId, channelId, message) {
-  const all = store.load();
-  if (!all[guildId]) all[guildId] = {};
-  all[guildId].welcomeChannelId = channelId;
-  all[guildId].welcomeMessage = message;
-  store.save(all);
+  ensureTable();
+  const db = getDb();
+  const existing = db.prepare("SELECT 1 FROM welcome_config WHERE guild_id = ?").get(guildId);
+  if (existing) {
+    db.prepare("UPDATE welcome_config SET welcome_channel_id = ?, welcome_message = ? WHERE guild_id = ?").run(channelId, message, guildId);
+  } else {
+    db.prepare("INSERT INTO welcome_config (guild_id, welcome_channel_id, welcome_message) VALUES (?, ?, ?)").run(guildId, channelId, message);
+  }
 }
 
-/**
- * Set leave message config.
- */
 export function setLeaveMessage(guildId, channelId, message) {
-  const all = store.load();
-  if (!all[guildId]) all[guildId] = {};
-  all[guildId].leaveChannelId = channelId;
-  all[guildId].leaveMessage = message;
-  store.save(all);
+  ensureTable();
+  const db = getDb();
+  const existing = db.prepare("SELECT 1 FROM welcome_config WHERE guild_id = ?").get(guildId);
+  if (existing) {
+    db.prepare("UPDATE welcome_config SET leave_channel_id = ?, leave_message = ? WHERE guild_id = ?").run(channelId, message, guildId);
+  } else {
+    db.prepare("INSERT INTO welcome_config (guild_id, leave_channel_id, leave_message) VALUES (?, ?, ?)").run(guildId, channelId, message);
+  }
 }
 
-/**
- * Disable welcome messages.
- */
 export function disableWelcome(guildId) {
-  const all = store.load();
-  if (!all[guildId]) return;
-  delete all[guildId].welcomeChannelId;
-  delete all[guildId].welcomeMessage;
-  if (Object.keys(all[guildId]).length === 0) delete all[guildId];
-  store.save(all);
+  ensureTable();
+  getDb().prepare("UPDATE welcome_config SET welcome_channel_id = NULL, welcome_message = NULL WHERE guild_id = ?").run(guildId);
 }
 
-/**
- * Disable leave messages.
- */
 export function disableLeave(guildId) {
-  const all = store.load();
-  if (!all[guildId]) return;
-  delete all[guildId].leaveChannelId;
-  delete all[guildId].leaveMessage;
-  if (Object.keys(all[guildId]).length === 0) delete all[guildId];
-  store.save(all);
+  ensureTable();
+  getDb().prepare("UPDATE welcome_config SET leave_channel_id = NULL, leave_message = NULL WHERE guild_id = ?").run(guildId);
 }
 
-/**
- * Process placeholders in a message template.
- */
 function processTemplate(template, member) {
   return template
     .replace(/{user}/gi, `<@${member.id}>`)
@@ -69,10 +64,6 @@ function processTemplate(template, member) {
     .replace(/{tag}/gi, member.user?.tag || member.user?.username || "User");
 }
 
-/**
- * Handle a new member joining.
- * @param {import("discord.js").GuildMember} member
- */
 export async function handleMemberJoin(member) {
   const config = getWelcomeConfig(member.guild.id);
   if (!config?.welcomeChannelId || !config?.welcomeMessage) return;
@@ -82,22 +73,15 @@ export async function handleMemberJoin(member) {
     const text = processTemplate(config.welcomeMessage, member);
     await channel.send({
       embeds: [{
-        color: 0x57f287,
-        description: text,
+        color: 0x57f287, description: text,
         thumbnail: { url: member.user.displayAvatarURL({ size: 256, dynamic: true }) },
         footer: { text: `Member #${member.guild.memberCount}` },
         timestamp: new Date().toISOString(),
       }],
     });
-  } catch (e) {
-    console.error("Welcome message failed:", e.message);
-  }
+  } catch (e) { console.error("Welcome message failed:", e.message); }
 }
 
-/**
- * Handle a member leaving.
- * @param {import("discord.js").GuildMember} member
- */
 export async function handleMemberLeave(member) {
   const config = getWelcomeConfig(member.guild.id);
   if (!config?.leaveChannelId || !config?.leaveMessage) return;
@@ -107,13 +91,10 @@ export async function handleMemberLeave(member) {
     const text = processTemplate(config.leaveMessage, member);
     await channel.send({
       embeds: [{
-        color: 0xed4245,
-        description: text,
+        color: 0xed4245, description: text,
         footer: { text: `${member.guild.memberCount} members remaining` },
         timestamp: new Date().toISOString(),
       }],
     });
-  } catch (e) {
-    console.error("Leave message failed:", e.message);
-  }
+  } catch (e) { console.error("Leave message failed:", e.message); }
 }

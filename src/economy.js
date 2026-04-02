@@ -1,40 +1,124 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
-const store = createStore("economy.json");
+let _initialized = false;
 
-function key(guildId, userId) {
-  return `${guildId}_${userId}`;
+function ensureTable() {
+  if (_initialized) return;
+  _initialized = true;
+  const db = getDb();
+  db.exec(`CREATE TABLE IF NOT EXISTS economy (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    wallet INTEGER DEFAULT 0,
+    bank INTEGER DEFAULT 0,
+    bank_limit INTEGER DEFAULT 5000,
+    job TEXT,
+    quest TEXT,
+    quest_baseline INTEGER DEFAULT 0,
+    inventory TEXT DEFAULT '[]',
+    cooldowns TEXT DEFAULT '{}',
+    stats TEXT DEFAULT '{}',
+    daily_streak INTEGER DEFAULT 0,
+    last_daily INTEGER DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id)
+  )`);
+  migrateFromKvStore();
 }
 
-const DEFAULT_USER = () => ({
-  wallet: 0,
-  bank: 0,
-  bankLimit: 5000,
-  job: null,
-  quest: null,
-  questProgress: 0,
-  inventory: [],
-  cooldowns: {},
-  stats: { timesWorked: 0, questsCompleted: 0, gamblingWon: 0, gamblingLost: 0, totalEarned: 0 },
-});
+function migrateFromKvStore() {
+  const db = getDb();
+  let row;
+  try { row = db.prepare("SELECT value FROM kv_stores WHERE key = ?").get("economy.json"); } catch { return; }
+  if (!row) return;
+  try {
+    const data = JSON.parse(row.value);
+    const insert = db.prepare(`INSERT OR IGNORE INTO economy
+      (guild_id, user_id, wallet, bank, bank_limit, job, quest, quest_baseline, inventory, cooldowns, stats)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    const txn = db.transaction(() => {
+      for (const [compositeKey, u] of Object.entries(data)) {
+        const sepIdx = compositeKey.indexOf("_");
+        if (sepIdx === -1) continue;
+        const guildId = compositeKey.slice(0, sepIdx);
+        const userId = compositeKey.slice(sepIdx + 1);
+        const questId = u.quest?.id || null;
+        const questBaseline = u.quest?.baseline || 0;
+        insert.run(
+          guildId, userId,
+          u.wallet || 0, u.bank || 0, u.bankLimit || 5000,
+          u.job || null, questId, questBaseline,
+          JSON.stringify(u.inventory || []),
+          JSON.stringify(u.cooldowns || {}),
+          JSON.stringify(u.stats || {})
+        );
+      }
+    });
+    txn();
+    db.prepare("DELETE FROM kv_stores WHERE key = ?").run("economy.json");
+    console.log("Migrated economy from kv_stores JSON to SQLite table.");
+  } catch (e) {
+    console.error("Failed to migrate economy:", e);
+  }
+}
+
+const DEFAULT_STATS = { timesWorked: 0, questsCompleted: 0, gamblingWon: 0, gamblingLost: 0, totalEarned: 0 };
+
+function rowToUser(row) {
+  if (!row) return {
+    wallet: 0, bank: 0, bankLimit: 5000, job: null,
+    quest: null, questProgress: 0, inventory: [],
+    cooldowns: {}, stats: { ...DEFAULT_STATS },
+    dailyStreak: 0, lastDaily: 0,
+  };
+  return {
+    wallet: row.wallet,
+    bank: row.bank,
+    bankLimit: row.bank_limit,
+    job: row.job,
+    quest: row.quest ? { id: row.quest, baseline: row.quest_baseline } : null,
+    questProgress: 0,
+    inventory: JSON.parse(row.inventory || "[]"),
+    cooldowns: JSON.parse(row.cooldowns || "{}"),
+    stats: { ...DEFAULT_STATS, ...JSON.parse(row.stats || "{}") },
+    dailyStreak: row.daily_streak || 0,
+    lastDaily: row.last_daily || 0,
+  };
+}
 
 export function getUser(guildId, userId) {
-  const all = store.load();
-  const k = key(guildId, userId);
-  if (!all[k]) {
-    all[k] = DEFAULT_USER();
-    store.save(all);
+  ensureTable();
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM economy WHERE guild_id = ? AND user_id = ?").get(guildId, userId);
+  if (!row) {
+    // Create default user
+    db.prepare("INSERT OR IGNORE INTO economy (guild_id, user_id) VALUES (?, ?)").run(guildId, userId);
+    return rowToUser(null);
   }
-  return { ...all[k] };
+  return rowToUser(row);
 }
 
 export function updateUser(guildId, userId, updater) {
-  const all = store.load();
-  const k = key(guildId, userId);
-  if (!all[k]) all[k] = DEFAULT_USER();
-  updater(all[k]);
-  store.save(all);
-  return { ...all[k] };
+  ensureTable();
+  const db = getDb();
+  // Ensure row exists
+  db.prepare("INSERT OR IGNORE INTO economy (guild_id, user_id) VALUES (?, ?)").run(guildId, userId);
+  const row = db.prepare("SELECT * FROM economy WHERE guild_id = ? AND user_id = ?").get(guildId, userId);
+  const user = rowToUser(row);
+  updater(user);
+  db.prepare(`UPDATE economy SET
+    wallet = ?, bank = ?, bank_limit = ?, job = ?,
+    quest = ?, quest_baseline = ?, inventory = ?,
+    cooldowns = ?, stats = ?, daily_streak = ?, last_daily = ?
+    WHERE guild_id = ? AND user_id = ?`).run(
+    user.wallet, user.bank, user.bankLimit, user.job,
+    user.quest?.id || null, user.quest?.baseline || 0,
+    JSON.stringify(user.inventory),
+    JSON.stringify(user.cooldowns),
+    JSON.stringify(user.stats),
+    user.dailyStreak || 0, user.lastDaily || 0,
+    guildId, userId
+  );
+  return { ...user };
 }
 
 export function addMoney(guildId, userId, amount, toBank = false) {
@@ -72,13 +156,52 @@ export function getCooldownRemaining(guildId, userId, action) {
 }
 
 export function getLeaderboard(guildId, limit = 10) {
-  const all = store.load();
-  const prefix = `${guildId}_`;
-  return Object.entries(all)
-    .filter(([k]) => k.startsWith(prefix))
-    .map(([k, v]) => ({ userId: k.slice(prefix.length), total: (v.wallet || 0) + (v.bank || 0) }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, limit);
+  ensureTable();
+  const db = getDb();
+  const rows = db.prepare("SELECT user_id, wallet, bank FROM economy WHERE guild_id = ? ORDER BY (wallet + bank) DESC LIMIT ?").all(guildId, limit);
+  return rows.map((r) => ({ userId: r.user_id, total: r.wallet + r.bank }));
+}
+
+// --- Daily Streak ---
+
+export function claimDaily(guildId, userId) {
+  ensureTable();
+  const db = getDb();
+  db.prepare("INSERT OR IGNORE INTO economy (guild_id, user_id) VALUES (?, ?)").run(guildId, userId);
+  const row = db.prepare("SELECT daily_streak, last_daily FROM economy WHERE guild_id = ? AND user_id = ?").get(guildId, userId);
+  const now = Date.now();
+  const lastDaily = row?.last_daily || 0;
+  let streak = row?.daily_streak || 0;
+
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+
+  // Check if still on cooldown
+  if (lastDaily && now - lastDaily < TWENTY_FOUR_HOURS) {
+    return { onCooldown: true, remaining: TWENTY_FOUR_HOURS - (now - lastDaily), streak };
+  }
+
+  // Check if streak should continue or reset
+  if (lastDaily && now - lastDaily < FORTY_EIGHT_HOURS) {
+    streak++;
+  } else {
+    streak = 1;
+  }
+
+  // Calculate reward with streak bonus
+  const baseAmount = 100 + Math.floor(Math.random() * 201); // 100-300
+  const streakBonus = Math.min(streak - 1, 30) * 20; // +20 per streak day, max +600
+  const streakMultiplier = streak >= 30 ? 2 : streak >= 14 ? 1.5 : streak >= 7 ? 1.25 : 1;
+  const amount = Math.floor((baseAmount + streakBonus) * streakMultiplier);
+
+  return updateUser(guildId, userId, (u) => {
+    u.wallet += amount;
+    u.stats.totalEarned += amount;
+    u.dailyStreak = streak;
+    u.lastDaily = now;
+    // Attach reward info for the caller
+    u._dailyResult = { amount, streak, streakBonus, streakMultiplier, baseAmount };
+  });
 }
 
 // --- Jobs ---

@@ -1,44 +1,31 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
-const store = createStore("deleted-log-config.json", () => ({ channels: [] }));
-
-function load() {
-  const config = store.load();
-  if (config.channels) return config;
-  // Migrate old { guilds: { guildId: channelId } } format
-  if (config.guilds && typeof config.guilds === "object") {
-    const channels = Object.entries(config.guilds).map(([guildId, channelId]) => ({ channelId, guildId }));
-    return { channels };
-  }
-  return { channels: [] };
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  getDb().exec(`CREATE TABLE IF NOT EXISTS deleted_log_channels (
+    channel_id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL
+  )`);
 }
 
 export function getLogChannelIdsForGuild(guildId) {
-  const list = load().channels || [];
-  return list.filter((c) => c.guildId === guildId).map((c) => c.channelId);
+  ensureTable();
+  return getDb().prepare("SELECT channel_id FROM deleted_log_channels WHERE guild_id = ?").all(guildId).map((r) => r.channel_id);
 }
 
 export function addLogChannel(channelId, guildId) {
-  const config = load();
-  if (!config.channels) config.channels = [];
-  const id = String(channelId);
-  if (config.channels.some((c) => c.channelId === id && c.guildId === String(guildId))) return;
-  config.channels.push({ channelId: id, guildId: String(guildId) });
-  store.save(config);
+  ensureTable();
+  getDb().prepare("INSERT OR IGNORE INTO deleted_log_channels (channel_id, guild_id) VALUES (?, ?)").run(String(channelId), String(guildId));
 }
 
 export function removeLogChannel(channelId) {
-  const config = load();
-  if (!config.channels) return false;
-  const id = String(channelId);
-  const before = config.channels.length;
-  config.channels = config.channels.filter((c) => c.channelId !== id);
-  if (config.channels.length === before) return false;
-  store.save(config);
-  return true;
+  ensureTable();
+  return getDb().prepare("DELETE FROM deleted_log_channels WHERE channel_id = ?").run(String(channelId)).changes > 0;
 }
 
 export function getAllLogChannels() {
-  const config = load();
-  return Array.isArray(config.channels) ? [...config.channels] : [];
+  ensureTable();
+  return getDb().prepare("SELECT channel_id AS channelId, guild_id AS guildId FROM deleted_log_channels").all();
 }

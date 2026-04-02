@@ -5,7 +5,7 @@ import { save as saveMessage, get as getSavedMessage, list as listSavedMessages,
 import { addLogChannel, removeLogChannel } from "../deletedLogConfig.js";
 import { getConfig as getJailConfig, setConfig as setJailConfig } from "../jailConfig.js";
 import { addSchedule, listSchedules, removeSchedule } from "../scheduler.js";
-import { getStats, getLeaderboard } from "../levels.js";
+import { getStats, getLeaderboard, addRoleReward, removeRoleReward, getRoleRewards, getLevelConfig, setLevelConfig } from "../levels.js";
 import { addWarning, getWarnings, clearWarnings } from "../warnings.js";
 import { log as auditLog } from "../auditLog.js";
 import { setStarboardConfig, removeStarboardConfig, getStarboardConfig } from "../starboard.js";
@@ -13,9 +13,19 @@ import { setWelcomeMessage, setLeaveMessage, disableWelcome, disableLeave } from
 import { setTicketConfig } from "../ticketSystem.js";
 import { setConfessionChannel, disableConfessions, postConfession } from "../confessions.js";
 import { setModLogChannel, disableModLog } from "../modLog.js";
+import { addReactionRole, removeReactionRole, listAllReactionRoles } from "../reactionRoles.js";
+import { getAutomodConfig, setAutomodConfig } from "../automod.js";
+import { setTempVoiceConfig, disableTempVoice, setTempChannelName, setTempChannelLimit, lockTempChannel } from "../tempVoice.js";
+import { trackEvent } from "../analytics.js";
+import { cacheGuild, resetCacheStatus, getCacheStatus } from "../messageCache.js";
 
 export async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand()) return;
+
+  // Track command usage for analytics
+  if (interaction.guildId) {
+    trackEvent(interaction.guildId, "command_used", { command: interaction.commandName, userId: interaction.user.id });
+  }
 
   // --- /level ---
   if (interaction.commandName === "level") {
@@ -512,7 +522,7 @@ export async function handleInteraction(interaction) {
     if (text.length > 2000) {
       return interaction.reply({ content: "Confession is too long (max 2000 characters).", flags: MessageFlags.Ephemeral });
     }
-    const result = await postConfession(interaction.client, guildId, text);
+    const result = await postConfession(interaction.client, guildId, text, interaction.user.id);
     if (!result.ok) {
       return interaction.reply({ content: `❌ ${result.error}`, flags: MessageFlags.Ephemeral });
     }
@@ -536,6 +546,251 @@ export async function handleInteraction(interaction) {
     }
     disableModLog(interaction.guildId);
     return interaction.reply({ content: "Mod logging disabled.", ephemeral: false });
+  }
+
+  // --- /reactionrole ---
+  if (interaction.commandName === "reactionrole") {
+    if (!interaction.memberPermissions?.has("ManageRoles")) {
+      return interaction.reply({ content: "You need **Manage Roles** permission.", flags: MessageFlags.Ephemeral });
+    }
+    const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
+
+    if (sub === "add") {
+      const channel = interaction.options.getChannel("channel");
+      const messageId = interaction.options.getString("message_id");
+      const emoji = interaction.options.getString("emoji");
+      const role = interaction.options.getRole("role");
+      try {
+        const msg = await channel.messages.fetch(messageId);
+        await msg.react(emoji);
+        addReactionRole(guildId, messageId, channel.id, emoji, role.id);
+        return interaction.reply({ content: `Reaction role added: ${emoji} → **${role.name}** on [message](${msg.url})`, flags: MessageFlags.Ephemeral });
+      } catch (e) {
+        return interaction.reply({ content: `Failed: ${e.message}`, flags: MessageFlags.Ephemeral });
+      }
+    }
+    if (sub === "remove") {
+      const messageId = interaction.options.getString("message_id");
+      const emoji = interaction.options.getString("emoji");
+      const removed = removeReactionRole(guildId, messageId, emoji);
+      return interaction.reply({ content: removed ? "Reaction role removed." : "Not found.", flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "list") {
+      const all = listAllReactionRoles(guildId);
+      const entries = Object.entries(all);
+      if (entries.length === 0) return interaction.reply({ content: "No reaction roles configured.", flags: MessageFlags.Ephemeral });
+      const lines = entries.flatMap(([msgId, info]) =>
+        Object.entries(info.roles).map(([emoji, roleId]) => `${emoji} → <@&${roleId}> on message \`${msgId}\` in <#${info.channelId}>`)
+      );
+      return interaction.reply({ embeds: [{ color: 0x5865f2, title: "Reaction Roles", description: lines.join("\n") }], flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // --- /automod ---
+  if (interaction.commandName === "automod") {
+    if (!interaction.memberPermissions?.has("ManageGuild")) {
+      return interaction.reply({ content: "You need **Manage Server** permission.", flags: MessageFlags.Ephemeral });
+    }
+    const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
+
+    if (sub === "enable") {
+      setAutomodConfig(guildId, { enabled: true });
+      return interaction.reply({ content: "Auto-mod **enabled**.", flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "disable") {
+      setAutomodConfig(guildId, { enabled: false });
+      return interaction.reply({ content: "Auto-mod **disabled**.", flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "spam") {
+      const maxMessages = interaction.options.getInteger("max_messages");
+      const interval = interaction.options.getInteger("interval");
+      const action = interaction.options.getString("action");
+      const cfg = getAutomodConfig(guildId);
+      const spamFilter = { ...cfg.spamFilter, enabled: true };
+      if (maxMessages) spamFilter.maxMessages = maxMessages;
+      if (interval) spamFilter.interval = interval * 1000;
+      if (action) spamFilter.action = action;
+      setAutomodConfig(guildId, { spamFilter });
+      return interaction.reply({ content: `Spam filter: max **${spamFilter.maxMessages}** msgs in **${spamFilter.interval / 1000}s**, action: **${spamFilter.action}**`, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "links") {
+      const enabled = interaction.options.getBoolean("enabled");
+      const action = interaction.options.getString("action");
+      const cfg = getAutomodConfig(guildId);
+      const linkFilter = { ...cfg.linkFilter, enabled };
+      if (action) linkFilter.action = action;
+      setAutomodConfig(guildId, { linkFilter });
+      return interaction.reply({ content: `Link filter ${enabled ? "**enabled**" : "**disabled**"}${action ? `, action: **${action}**` : ""}.`, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "words") {
+      const wordAction = interaction.options.getString("action");
+      const word = interaction.options.getString("word");
+      const cfg = getAutomodConfig(guildId);
+      const wordFilter = { ...cfg.wordFilter, enabled: true };
+      if (wordAction === "add" && word) {
+        if (!wordFilter.words.includes(word.toLowerCase())) wordFilter.words.push(word.toLowerCase());
+        setAutomodConfig(guildId, { wordFilter });
+        return interaction.reply({ content: `Added **${word}** to word blacklist.`, flags: MessageFlags.Ephemeral });
+      }
+      if (wordAction === "remove" && word) {
+        wordFilter.words = wordFilter.words.filter((w) => w !== word.toLowerCase());
+        setAutomodConfig(guildId, { wordFilter });
+        return interaction.reply({ content: `Removed **${word}** from word blacklist.`, flags: MessageFlags.Ephemeral });
+      }
+      if (wordAction === "list") {
+        const list = cfg.wordFilter?.words || [];
+        return interaction.reply({ content: list.length > 0 ? `Blocked words: ${list.map((w) => `\`${w}\``).join(", ")}` : "No blocked words.", flags: MessageFlags.Ephemeral });
+      }
+      return interaction.reply({ content: "Provide an action (add/remove/list) and a word.", flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "log") {
+      const channel = interaction.options.getChannel("channel");
+      setAutomodConfig(guildId, { logChannelId: channel.id });
+      return interaction.reply({ content: `Auto-mod logs will be sent to ${channel}.`, flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // --- /tempvoice ---
+  if (interaction.commandName === "tempvoice") {
+    const sub = interaction.options.getSubcommand();
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
+
+    if (sub === "setup") {
+      if (!interaction.memberPermissions?.has("ManageChannels")) {
+        return interaction.reply({ content: "You need **Manage Channels** permission.", flags: MessageFlags.Ephemeral });
+      }
+      const channel = interaction.options.getChannel("channel");
+      const category = interaction.options.getChannel("category");
+      const nameTemplate = interaction.options.getString("name_template") || "{user}'s Channel";
+      setTempVoiceConfig(guildId, channel.id, category.id, nameTemplate);
+      return interaction.reply({ content: `Temp voice configured! Join ${channel} to create a channel. Template: \`${nameTemplate}\``, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "disable") {
+      if (!interaction.memberPermissions?.has("ManageChannels")) {
+        return interaction.reply({ content: "You need **Manage Channels** permission.", flags: MessageFlags.Ephemeral });
+      }
+      disableTempVoice(guildId);
+      return interaction.reply({ content: "Temp voice channels disabled.", flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "name") {
+      const name = interaction.options.getString("new_name");
+      const result = await setTempChannelName(interaction.member, name);
+      return interaction.reply({ content: result.ok ? `Channel renamed to **${name}**.` : result.error, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "limit") {
+      const limit = interaction.options.getInteger("number");
+      const result = await setTempChannelLimit(interaction.member, limit);
+      return interaction.reply({ content: result.ok ? `User limit set to **${limit || "unlimited"}**.` : result.error, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "lock") {
+      const result = await lockTempChannel(interaction.member, true);
+      return interaction.reply({ content: result.ok ? "Channel locked." : result.error, flags: MessageFlags.Ephemeral });
+    }
+    if (sub === "unlock") {
+      const result = await lockTempChannel(interaction.member, false);
+      return interaction.reply({ content: result.ok ? "Channel unlocked." : result.error, flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // --- /levels config ---
+  if (interaction.commandName === "levels") {
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
+    const subGroup = interaction.options.getSubcommandGroup(false);
+    const sub = interaction.options.getSubcommand();
+
+    if (subGroup === "role-reward") {
+      if (sub === "add") {
+        const level = interaction.options.getInteger("level");
+        const role = interaction.options.getRole("role");
+        addRoleReward(guildId, level, role.id);
+        return interaction.reply({ content: `\u2705 Role **${role.name}** will be granted at level **${level}**.`, flags: MessageFlags.Ephemeral });
+      }
+      if (sub === "remove") {
+        const level = interaction.options.getInteger("level");
+        const removed = removeRoleReward(guildId, level);
+        return interaction.reply({ content: removed ? `Removed role reward for level ${level}.` : "No reward at that level.", flags: MessageFlags.Ephemeral });
+      }
+      if (sub === "list") {
+        const rewards = getRoleRewards(guildId);
+        if (rewards.length === 0) return interaction.reply({ content: "No role rewards configured. Use `/levels role-reward add` to add one.", flags: MessageFlags.Ephemeral });
+        const lines = rewards.map((r) => `Level **${r.level}** \u2192 <@&${r.role_id}>`);
+        return interaction.reply({ embeds: [{ color: 0x5865f2, title: "\ud83c\udfc6 Level Role Rewards", description: lines.join("\n") }], flags: MessageFlags.Ephemeral });
+      }
+    }
+
+    if (sub === "announce") {
+      const channel = interaction.options.getChannel("channel");
+      setLevelConfig(guildId, { announceChannelId: channel?.id || null });
+      return interaction.reply({
+        content: channel ? `Level-up messages will be sent to ${channel}.` : "Level-up messages will be sent in the same channel.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return;
+  }
+
+  // --- /cache-messages ---
+  if (interaction.commandName === "cache-messages") {
+    if (!interaction.memberPermissions?.has("Administrator")) {
+      return interaction.reply({ content: "You need **Administrator** permission.", flags: MessageFlags.Ephemeral });
+    }
+    const guildId = interaction.guildId;
+    if (!guildId) return interaction.reply({ content: "Use this in a server.", flags: MessageFlags.Ephemeral });
+    const reset = interaction.options.getBoolean("reset") || false;
+
+    await interaction.deferReply();
+
+    if (reset) {
+      resetCacheStatus(guildId);
+      await interaction.editReply("🔄 Reset cache. Starting fresh crawl of all channels...");
+    } else {
+      const status = getCacheStatus(guildId);
+      if (status.done > 0) {
+        await interaction.editReply(`📊 Resuming cache... (${status.done} channels already cached with ${status.total.toLocaleString()} messages). Scanning remaining channels...`);
+      } else {
+        await interaction.editReply("📊 Starting message cache for all channels. This may take a while for large servers...");
+      }
+    }
+
+    try {
+      let lastUpdate = 0;
+      const result = await cacheGuild(interaction.guild, async (info) => {
+        // Update progress every 5 seconds to avoid rate limits
+        const now = Date.now();
+        if (now - lastUpdate < 5000) return;
+        lastUpdate = now;
+        const statusText = info.status === "skipped" ? "⏭️ skipped" : info.status === "in_progress" ? "⏳ reading..." : "✅ done";
+        try {
+          await interaction.editReply(
+            `📊 Caching messages...\n` +
+            `Channel: **#${info.channel}** ${statusText}\n` +
+            `Progress: ${info.channelDone}/${info.totalChannels} channels\n` +
+            `Total messages: **${info.totalDone.toLocaleString()}**`
+          );
+        } catch (_) {}
+      });
+
+      await interaction.editReply(
+        `✅ **Message cache complete!**\n` +
+        `Messages cached: **${result.totalMessages.toLocaleString()}**\n` +
+        `Channels processed: **${result.channelsCached}**\n` +
+        `Channels skipped: **${result.skipped}** (already cached or no access)\n\n` +
+        `All messages are now in analytics. Check the web panel for updated stats.`
+      );
+    } catch (e) {
+      console.error("[MessageCache] Command error:", e);
+      await interaction.editReply(`❌ Cache failed: ${e.message}`).catch(() => {});
+    }
+    return;
   }
 
   if (interaction.commandName !== "send") return;

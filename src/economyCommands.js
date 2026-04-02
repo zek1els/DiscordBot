@@ -1,11 +1,15 @@
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from "discord.js";
 import {
   getUser, updateUser, addMoney, removeMoney,
   setCooldown, getCooldownRemaining,
-  getLeaderboard, getJobLevel,
+  getLeaderboard, getJobLevel, claimDaily,
   JOBS, QUESTS, assignRandomQuest, checkQuestProgress, completeQuest,
   SHOP_ITEMS, buyItem, hasItem, consumeItem,
   formatCoins, formatCooldown,
 } from "./economy.js";
+
+// Track active blackjack games to prevent multiple simultaneous games
+const activeBlackjack = new Map();
 
 function rand(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -128,16 +132,23 @@ export async function handleEconomyCommand(message, commandName, args) {
 
     case "daily":
     case "d": {
-      const cd = getCooldownRemaining(guildId, userId, "daily");
-      if (cd > 0) return send(`\u23f0 You already claimed your daily! Come back in **${formatCooldown(cd)}**.`), true;
-      const amount = rand(100, 300);
-      addMoney(guildId, userId, amount);
-      setCooldown(guildId, userId, "daily", 24 * 60 * 60 * 1000);
+      const result = claimDaily(guildId, userId);
+      if (result.onCooldown) {
+        return send(`\u23f0 You already claimed your daily! Come back in **${formatCooldown(result.remaining)}**.\n\ud83d\udd25 Current streak: **${result.streak}** day(s)`), true;
+      }
+      const info = result._dailyResult;
+      const streakEmoji = info.streak >= 30 ? "\ud83d\udc51" : info.streak >= 14 ? "\ud83d\udd25" : info.streak >= 7 ? "\u2b50" : "\ud83c\udf1f";
+      const bonusText = info.streakBonus > 0 ? `\nStreak bonus: +${formatCoins(info.streakBonus)}` : "";
+      const multText = info.streakMultiplier > 1 ? ` (${info.streakMultiplier}x multiplier!)` : "";
       return sendEmbed({
         color: 0xfee75c,
-        title: "\ud83c\udf1f  Daily Reward Claimed!",
-        description: `You received ${formatCoins(amount)}!`,
-        footer: { text: "Come back in 24 hours for your next reward" },
+        title: `${streakEmoji}  Daily Reward Claimed!`,
+        description: `You received ${formatCoins(info.amount)}!${bonusText}${multText}`,
+        fields: [
+          { name: "\ud83d\udd25 Streak", value: `**${info.streak}** day(s)`, inline: true },
+          { name: "Next Milestone", value: info.streak < 7 ? `7 days (1.25x)` : info.streak < 14 ? `14 days (1.5x)` : info.streak < 30 ? `30 days (2x)` : "Max streak!", inline: true },
+        ],
+        footer: { text: "Come back in 24h \u2022 Streak resets if you miss 48h" },
       }), true;
     }
 
@@ -275,49 +286,136 @@ export async function handleEconomyCommand(message, commandName, args) {
       const amount = args.toLowerCase() === "all" ? u.wallet : parseInt(args);
       if (!amount || amount <= 0) return send("Usage: `!blackjack <amount|all>`"), true;
       if (amount > u.wallet) return send(`You only have ${formatCoins(u.wallet)} in your wallet.`), true;
+      if (activeBlackjack.has(userId)) return send("You already have a blackjack game in progress!"), true;
       removeMoney(guildId, userId, amount);
+
       const cards = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-      const val = (c) => c === "A" ? 11 : ["J", "Q", "K"].includes(c) ? 10 : parseInt(c);
-      const hand = () => {
-        const c = [pick(cards), pick(cards)];
-        return { cards: c, total: adjustAces(c) };
-      };
-      const adjustAces = (cards) => {
-        let total = cards.reduce((s, c) => s + val(c), 0);
-        let aces = cards.filter((c) => c === "A").length;
+      const suits = ["\u2660\ufe0f", "\u2665\ufe0f", "\u2666\ufe0f", "\u2663\ufe0f"];
+      const drawCard = () => `${pick(cards)}${pick(suits)}`;
+      const cardVal = (c) => { const v = c.replace(/[\u2660\ufe0f\u2665\ufe0f\u2666\ufe0f\u2663\ufe0f]/g, ""); return v === "A" ? 11 : ["J", "Q", "K"].includes(v) ? 10 : parseInt(v); };
+      const handTotal = (hand) => {
+        let total = hand.reduce((s, c) => s + cardVal(c), 0);
+        let aces = hand.filter((c) => c.startsWith("A")).length;
         while (total > 21 && aces > 0) { total -= 10; aces--; }
         return total;
       };
-      const player = hand();
-      const dealer = hand();
-      while (player.total < 17) {
-        const c = pick(cards);
-        player.cards.push(c);
-        player.total = adjustAces(player.cards);
-      }
-      while (dealer.total < 17) {
-        const c = pick(cards);
-        dealer.cards.push(c);
-        dealer.total = adjustAces(dealer.cards);
-      }
-      const pDisplay = player.cards.join(" ") + ` (${player.total})`;
-      const dDisplay = dealer.cards.join(" ") + ` (${dealer.total})`;
-      let result;
-      if (player.total > 21) {
-        result = `Bust! You lost ${formatCoins(amount)}.`;
-        updateUser(guildId, userId, (u) => { u.stats.gamblingLost++; });
-      } else if (dealer.total > 21 || player.total > dealer.total) {
-        addMoney(guildId, userId, amount * 2);
+
+      const playerHand = [drawCard(), drawCard()];
+      const dealerHand = [drawCard(), drawCard()];
+
+      const buildEmbed = (reveal = false) => {
+        const pTotal = handTotal(playerHand);
+        const dTotal = reveal ? handTotal(dealerHand) : cardVal(dealerHand[0]);
+        return {
+          color: 0x2b2d31,
+          title: "\ud83c\udccf Blackjack",
+          fields: [
+            { name: `Your Hand (${pTotal})`, value: playerHand.join(" "), inline: true },
+            { name: `Dealer ${reveal ? `(${dTotal})` : ""}`, value: reveal ? dealerHand.join(" ") : `${dealerHand[0]} \ud83c\udca0`, inline: true },
+            { name: "Bet", value: formatCoins(amount), inline: true },
+          ],
+        };
+      };
+
+      // Check for natural blackjack
+      if (handTotal(playerHand) === 21) {
+        // Blackjack pays 2.5x
+        const winnings = Math.floor(amount * 2.5);
+        addMoney(guildId, userId, winnings);
         updateUser(guildId, userId, (u) => { u.stats.gamblingWon++; });
-        result = `You win ${formatCoins(amount)}!`;
-      } else if (player.total === dealer.total) {
-        addMoney(guildId, userId, amount);
-        result = "Push! Your bet was returned.";
-      } else {
-        result = `Dealer wins. You lost ${formatCoins(amount)}.`;
-        updateUser(guildId, userId, (u) => { u.stats.gamblingLost++; });
+        const embed = buildEmbed(true);
+        embed.color = 0x57f287;
+        embed.footer = { text: `\ud83c\udf1f Blackjack! You won ${winnings.toLocaleString()} coins (2.5x)` };
+        return message.channel.send({ embeds: [embed] }).catch(() => {}), true;
       }
-      return send(`\ud83c\udccf **Blackjack**\nYou: ${pDisplay}\nDealer: ${dDisplay}\n${result}`), true;
+
+      const buttons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`bj_hit_${userId}`).setLabel("Hit").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`bj_stand_${userId}`).setLabel("Stand").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`bj_double_${userId}`).setLabel("Double Down").setStyle(ButtonStyle.Danger)
+          .setDisabled(u.wallet < amount),
+      );
+
+      const msg = await message.channel.send({ embeds: [buildEmbed()], components: [buttons] }).catch(() => null);
+      if (!msg) return true;
+
+      activeBlackjack.set(userId, true);
+
+      const collector = msg.createMessageComponentCollector({ time: 60_000 });
+      let doubled = false;
+
+      collector.on("collect", async (btn) => {
+        if (btn.user.id !== userId) return btn.reply({ content: "This isn't your game!", flags: MessageFlags.Ephemeral });
+
+        if (btn.customId === `bj_double_${userId}`) {
+          removeMoney(guildId, userId, amount);
+          doubled = true;
+          playerHand.push(drawCard());
+          // After double, auto-stand
+          collector.stop("stand");
+          return;
+        }
+
+        if (btn.customId === `bj_hit_${userId}`) {
+          playerHand.push(drawCard());
+          if (handTotal(playerHand) >= 21) {
+            collector.stop("done");
+            return;
+          }
+          // Disable double after first hit
+          const newButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`bj_hit_${userId}`).setLabel("Hit").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`bj_stand_${userId}`).setLabel("Stand").setStyle(ButtonStyle.Secondary),
+          );
+          await btn.update({ embeds: [buildEmbed()], components: [newButtons] }).catch(() => {});
+          return;
+        }
+
+        if (btn.customId === `bj_stand_${userId}`) {
+          collector.stop("stand");
+        }
+      });
+
+      collector.on("end", async (_, reason) => {
+        activeBlackjack.delete(userId);
+        const betAmount = doubled ? amount * 2 : amount;
+
+        // Dealer plays
+        while (handTotal(dealerHand) < 17) dealerHand.push(drawCard());
+
+        const pTotal = handTotal(playerHand);
+        const dTotal = handTotal(dealerHand);
+        const embed = buildEmbed(true);
+
+        if (reason === "time") {
+          // Timeout — player loses
+          embed.color = 0xed4245;
+          embed.footer = { text: `\u23f0 Time's up! You lost ${betAmount.toLocaleString()} coins.` };
+          updateUser(guildId, userId, (u) => { u.stats.gamblingLost++; });
+        } else if (pTotal > 21) {
+          embed.color = 0xed4245;
+          embed.footer = { text: `Bust! You lost ${betAmount.toLocaleString()} coins.` };
+          updateUser(guildId, userId, (u) => { u.stats.gamblingLost++; });
+        } else if (dTotal > 21 || pTotal > dTotal) {
+          const winnings = betAmount * 2;
+          addMoney(guildId, userId, winnings);
+          updateUser(guildId, userId, (u) => { u.stats.gamblingWon++; });
+          embed.color = 0x57f287;
+          embed.footer = { text: `You win ${betAmount.toLocaleString()} coins!` };
+        } else if (pTotal === dTotal) {
+          addMoney(guildId, userId, betAmount);
+          embed.color = 0xfee75c;
+          embed.footer = { text: "Push! Your bet was returned." };
+        } else {
+          embed.color = 0xed4245;
+          embed.footer = { text: `Dealer wins. You lost ${betAmount.toLocaleString()} coins.` };
+          updateUser(guildId, userId, (u) => { u.stats.gamblingLost++; });
+        }
+
+        await msg.edit({ embeds: [embed], components: [] }).catch(() => {});
+      });
+
+      return true;
     }
 
     case "rob":

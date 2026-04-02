@@ -1,9 +1,21 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
-const store = createStore("users.json", () => []);
-const loadAll = () => store.load();
-const saveAll = (data) => store.save(data);
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  getDb().exec(`CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    verified INTEGER DEFAULT 1,
+    discord_id TEXT,
+    discord_username TEXT,
+    created_at TEXT NOT NULL
+  )`);
+}
 
 const SALT_LEN = 16;
 const KEY_LEN = 64;
@@ -16,150 +28,82 @@ function generateId() {
   return randomBytes(12).toString("hex");
 }
 
-/**
- * @typedef {{ id: string, email: string, passwordHash: string, salt: string, verified?: boolean, discordId?: string, discordUsername?: string, createdAt: string }} User
- */
+function rowToUser(row) {
+  if (!row) return null;
+  return { id: row.id, email: row.email, verified: !!row.verified, discordId: row.discord_id || undefined, discordUsername: row.discord_username || undefined, createdAt: row.created_at };
+}
 
-/**
- * Create a new user (register). Email must be unique.
- * @param {string} email
- * @param {string} password
- * @param {{ verified?: boolean }} [opts]
- * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string }}
- */
 export function create(email, password, opts = {}) {
+  ensureTable();
   const normalized = String(email).trim().toLowerCase();
   if (!normalized) throw new Error("Email required");
   if (!password || password.length < 6) throw new Error("Password must be at least 6 characters");
-  const users = loadAll();
-  if (users.some((u) => u.email.toLowerCase() === normalized)) {
-    throw new Error("An account with this email already exists");
-  }
+  const db = getDb();
+  const existing = db.prepare("SELECT 1 FROM users WHERE email = ?").get(normalized);
+  if (existing) throw new Error("An account with this email already exists");
   const salt = randomBytes(SALT_LEN).toString("base64");
   const passwordHash = hashPassword(password, salt);
-  const user = {
-    id: generateId(),
-    email: normalized,
-    passwordHash,
-    salt,
-    verified: opts.verified !== false,
-    createdAt: new Date().toISOString(),
-  };
-  users.push(user);
-  saveAll(users);
-  return { id: user.id, email: user.email, verified: user.verified, discordId: user.discordId, discordUsername: user.discordUsername };
+  const id = generateId();
+  const createdAt = new Date().toISOString();
+  db.prepare("INSERT INTO users (id, email, password_hash, salt, verified, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(id, normalized, passwordHash, salt, opts.verified !== false ? 1 : 0, createdAt);
+  return { id, email: normalized, verified: opts.verified !== false };
 }
 
-/**
- * Validate credentials and return user (without sensitive fields).
- * @param {string} email
- * @param {string} password
- * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
- */
 export function validate(email, password) {
+  ensureTable();
   const normalized = String(email).trim().toLowerCase();
-  const users = loadAll();
-  const user = users.find((u) => u.email.toLowerCase() === normalized);
-  if (!user) return null;
-  const hash = hashPassword(password, user.salt);
+  const row = getDb().prepare("SELECT * FROM users WHERE email = ?").get(normalized);
+  if (!row) return null;
+  const hash = hashPassword(password, row.salt);
   try {
     const bufHash = Buffer.from(hash, "base64");
-    const bufStored = Buffer.from(user.passwordHash, "base64");
+    const bufStored = Buffer.from(row.password_hash, "base64");
     if (bufHash.length !== bufStored.length || !timingSafeEqual(bufHash, bufStored)) return null;
-  } catch (_) {
-    return null;
-  }
-  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
+  } catch { return null; }
+  return rowToUser(row);
 }
 
-/**
- * Check if a user exists by email (for re-sending verification codes).
- * @param {string} email
- * @returns {{ id: string, email: string, verified: boolean } | null}
- */
 export function getByEmail(email) {
-  const normalized = String(email).trim().toLowerCase();
-  const users = loadAll();
-  const user = users.find((u) => u.email.toLowerCase() === normalized);
-  if (!user) return null;
-  return { id: user.id, email: user.email, verified: user.verified !== false };
+  ensureTable();
+  return rowToUser(getDb().prepare("SELECT * FROM users WHERE email = ?").get(String(email).trim().toLowerCase()));
 }
 
-/**
- * Find user by id.
- * @param {string} userId
- * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
- */
 export function getById(userId) {
-  const users = loadAll();
-  const user = users.find((u) => u.id === userId);
-  if (!user) return null;
-  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
+  ensureTable();
+  return rowToUser(getDb().prepare("SELECT * FROM users WHERE id = ?").get(userId));
 }
 
-/**
- * Find user by Discord ID.
- * @param {string} discordId
- * @returns {{ id: string, email: string, verified: boolean, discordId?: string, discordUsername?: string } | null}
- */
 export function getByDiscordId(discordId) {
-  const users = loadAll();
-  const user = users.find((u) => u.discordId === discordId);
-  if (!user) return null;
-  return { id: user.id, email: user.email, verified: user.verified !== false, discordId: user.discordId, discordUsername: user.discordUsername };
+  ensureTable();
+  return rowToUser(getDb().prepare("SELECT * FROM users WHERE discord_id = ?").get(discordId));
 }
 
-/**
- * Link Discord to an existing user.
- * @param {string} userId
- * @param {string} discordId
- * @param {string} discordUsername
- */
 export function setDiscord(userId, discordId, discordUsername) {
-  const users = loadAll();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i === -1) throw new Error("User not found");
-  users[i].discordId = discordId;
-  users[i].discordUsername = discordUsername || "";
-  saveAll(users);
+  ensureTable();
+  const changes = getDb().prepare("UPDATE users SET discord_id = ?, discord_username = ? WHERE id = ?").run(discordId, discordUsername || "", userId).changes;
+  if (changes === 0) throw new Error("User not found");
 }
 
-/**
- * Unlink Discord from user.
- * @param {string} userId
- */
 export function unsetDiscord(userId) {
-  const users = loadAll();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i === -1) throw new Error("User not found");
-  users[i].discordId = undefined;
-  users[i].discordUsername = undefined;
-  saveAll(users);
+  ensureTable();
+  const changes = getDb().prepare("UPDATE users SET discord_id = NULL, discord_username = NULL WHERE id = ?").run(userId).changes;
+  if (changes === 0) throw new Error("User not found");
 }
 
-/** List all users (safe fields only, no password hashes). */
 export function listUsers() {
-  return loadAll().map((u) => ({
-    id: u.id,
-    email: u.email,
-    verified: u.verified !== false,
-    discordId: u.discordId,
-    discordUsername: u.discordUsername,
-    createdAt: u.createdAt,
+  ensureTable();
+  return getDb().prepare("SELECT id, email, verified, discord_id, discord_username, created_at FROM users").all().map((r) => ({
+    id: r.id, email: r.email, verified: !!r.verified, discordId: r.discord_id, discordUsername: r.discord_username, createdAt: r.created_at,
   }));
 }
 
-/** Delete a user by id. Returns true if found and deleted. */
 export function deleteUser(userId) {
-  const users = loadAll();
-  const i = users.findIndex((u) => u.id === userId);
-  if (i === -1) return false;
-  users.splice(i, 1);
-  saveAll(users);
-  return true;
+  ensureTable();
+  return getDb().prepare("DELETE FROM users WHERE id = ?").run(userId).changes > 0;
 }
 
-/** Whether any user exists (so we can require auth). */
 export function hasAnyUser() {
-  return loadAll().length > 0;
+  ensureTable();
+  return !!getDb().prepare("SELECT 1 FROM users LIMIT 1").get();
 }

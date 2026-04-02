@@ -1,5 +1,5 @@
 import { listUsers, deleteUser } from "../users.js";
-import { createStore } from "../storage.js";
+import { getDb } from "../storage.js";
 import { getDataDir } from "../dataDir.js";
 
 /**
@@ -55,14 +55,15 @@ export function registerAdminRoutes(app, client, { isAdmin, getCurrentUser, sess
     if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
     try {
       const dir = getDataDir();
-      const jailConfig = createStore("jail-config.json").load();
-      const economy = createStore("economy.json").load();
+      const db = getDb();
+      const jailConfig = db.prepare("SELECT * FROM jail_config").all();
+      const economyCount = db.prepare("SELECT COUNT(*) AS cnt FROM economy").get()?.cnt ?? 0;
       res.json({
         dataDir: dir,
         railwayEnv: process.env.RAILWAY_ENVIRONMENT || null,
         dataDirEnv: process.env.DATA_DIR || null,
         jailConfig,
-        economyUserCount: Object.keys(economy).length,
+        economyUserCount: economyCount,
         guildsInCache: client.guilds.cache.size,
         guildIds: client.guilds.cache.map((g) => g.id),
       });

@@ -61,25 +61,19 @@
     return true;
   }
 
+  const ADMIN_NAV_IDS = ["navAnalytics", "navModeration", "navModLog", "navConfessions", "navLogs", "navUsers", "navAdminDivider"];
+
   function showApp() {
     showPanel("app");
     if (window._isAdmin) {
       document.getElementById("adminBadge").style.display = "inline";
       document.getElementById("botServersSection").style.display = "block";
-      document.getElementById("navLogs").style.display = "";
-      document.getElementById("navUsers").style.display = "";
-      document.getElementById("navWarnings").style.display = "";
-      document.getElementById("navAuditLog").style.display = "";
-      document.getElementById("navAdminDivider").style.display = "";
+      ADMIN_NAV_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ""; });
       loadBotServers();
     } else {
       document.getElementById("adminBadge").style.display = "none";
       document.getElementById("botServersSection").style.display = "none";
-      document.getElementById("navLogs").style.display = "none";
-      document.getElementById("navUsers").style.display = "none";
-      document.getElementById("navWarnings").style.display = "none";
-      document.getElementById("navAuditLog").style.display = "none";
-      document.getElementById("navAdminDivider").style.display = "none";
+      ADMIN_NAV_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
     }
     const discordWrap = document.getElementById("discordLinkWrap");
     const linkText = document.getElementById("discordLinkText");
@@ -540,9 +534,11 @@
     if (page === "economy") loadEconomyPage();
     if (page === "jail") loadJailConfigPage();
     if (page === "levels") loadLevelsPage();
+    if (page === "analytics" && window._isAdmin) loadAnalyticsPage();
+    if (page === "moderation" && window._isAdmin) loadModerationPage();
+    if (page === "modlog" && window._isAdmin) loadModLogPage();
+    if (page === "confessions" && window._isAdmin) loadConfessionsPage();
     if (page === "logs" && window._isAdmin) loadDeletedLogConfig();
-    if (page === "warnings" && window._isAdmin) loadWarningsPage();
-    if (page === "auditlog" && window._isAdmin) loadAuditLogPage();
     if (page === "users" && window._isAdmin) loadUsersPage();
   });
 
@@ -835,92 +831,494 @@
     loadLb();
   }
 
-  // --- Warnings page (admin) ---
-  async function loadWarningsPage() {
-    await populateGuildSelect("warningGuildSelect");
-    const guildSelect = document.getElementById("warningGuildSelect");
-    const listEl = document.getElementById("warningsList");
-    const loadWarnings = async () => {
+  // --- Analytics page (admin) ---
+  let _analyticsInterval = null;
+  async function loadAnalyticsPage() {
+    await populateGuildSelect("analyticsGuildSelect");
+    const guildSelect = document.getElementById("analyticsGuildSelect");
+    const content = document.getElementById("analyticsContent");
+    const autoRefreshEl = document.getElementById("analyticsAutoRefresh");
+
+    // Clear any previous auto-refresh
+    if (_analyticsInterval) { clearInterval(_analyticsInterval); _analyticsInterval = null; }
+
+    const load = async () => {
       const gid = guildSelect.value;
-      if (!gid) { listEl.innerHTML = '<li><span class="muted">Select a server.</span></li>'; return; }
-      listEl.innerHTML = '<li><span class="muted">Loading\u2026</span></li>';
+      if (!gid) { content.style.display = "none"; autoRefreshEl.style.display = "none"; return; }
+      content.style.display = "block";
+      autoRefreshEl.style.display = "flex";
+
+      // Live server stats
       try {
-        const r = await fetch(`/api/warnings/${gid}`, fetchOpts({ headers: headers() }));
-        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
-        const data = await r.json();
-        const warnings = data.warnings || [];
-        if (warnings.length === 0) {
-          listEl.innerHTML = '<li><span class="muted">No warnings in this server.</span></li>';
-          return;
+        const r = await fetch(`/api/stats/${gid}`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const s = await r.json();
+          document.getElementById("aStatMembers").textContent = s.memberCount?.toLocaleString() || "-";
+          document.getElementById("aStatOnline").textContent = s.online?.toLocaleString() || "0";
+          document.getElementById("aStatVoice").textContent = s.voiceMembers?.toLocaleString() || "0";
+          document.getElementById("aStatBoosts").textContent = s.boostCount?.toLocaleString() || "0";
+          // Server header
+          const iconEl = document.getElementById("aServerIcon");
+          if (s.icon) { iconEl.src = s.icon; iconEl.style.display = ""; } else { iconEl.style.display = "none"; }
+          document.getElementById("aServerName").textContent = s.name || "—";
+          const extras = [];
+          if (s.channels) extras.push(`${s.channels} channels`);
+          if (s.roles) extras.push(`${s.roles} roles`);
+          if (s.boostLevel > 0) extras.push(`Level ${s.boostLevel}`);
+          document.getElementById("aServerExtra").textContent = extras.length ? " · " + extras.join(" · ") : "";
         }
-        listEl.innerHTML = "";
-        for (const w of warnings) {
-          const li = document.createElement("li");
-          li.style.cssText = "flex-direction: column; align-items: flex-start;";
-          const date = new Date(w.timestamp).toLocaleString();
-          li.innerHTML = `<div><strong>${esc(w.username)}</strong> <span class="muted" style="font-size: 0.78rem;">warned by ${esc(w.moderatorName)}</span></div>
-            <div style="margin-top: 0.25rem;">${esc(w.reason)}</div>
-            <div class="muted" style="font-size: 0.75rem; margin-top: 0.25rem;">${esc(date)} &middot; ID: ${esc(w.id)}</div>`;
-          listEl.appendChild(li);
+      } catch {}
+
+      // Activity summary
+      try {
+        const r = await fetch(`/api/analytics/summary/${gid}`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const s = await r.json();
+          document.getElementById("aStatMsgToday").textContent = s.messagesToday?.toLocaleString() || "0";
+          document.getElementById("aStatMsgWeek").textContent = s.messagesThisWeek?.toLocaleString() || "0";
+          document.getElementById("aStatCmdToday").textContent = s.commandsToday?.toLocaleString() || "0";
+          document.getElementById("aStatActiveToday").textContent = s.activeUsersToday?.toLocaleString() || "0";
+          document.getElementById("aStatActiveWeek").textContent = s.activeUsersThisWeek?.toLocaleString() || "0";
         }
+      } catch {}
+
+      // Member growth
+      try {
+        const r = await fetch(`/api/analytics/growth/${gid}?days=7`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const g = await r.json();
+          document.getElementById("aStatJoins").textContent = `+${g.joins}`;
+          document.getElementById("aStatLeaves").textContent = `-${g.leaves}`;
+          const netEl = document.getElementById("aStatNetGrowth");
+          netEl.textContent = (g.net >= 0 ? "+" : "") + g.net;
+          netEl.style.color = g.net > 0 ? "var(--success)" : g.net < 0 ? "var(--error)" : "";
+        }
+      } catch {}
+
+      // Top commands
+      const cmdList = document.getElementById("analyticsCommandsList");
+      try {
+        const r = await fetch(`/api/analytics/commands/${gid}?days=7`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const { commands } = await r.json();
+          if (!commands || commands.length === 0) {
+            cmdList.innerHTML = '<li class="muted">No command data yet.</li>';
+          } else {
+            cmdList.innerHTML = commands.slice(0, 10).map(c =>
+              `<li><strong>/${esc(c.command || "unknown")}</strong> <span class="muted">${c.count} use${c.count !== 1 ? "s" : ""}</span></li>`
+            ).join("");
+          }
+        }
+      } catch { cmdList.innerHTML = '<li class="muted">Failed to load.</li>'; }
+
+      // Messages per day chart
+      const chartEl = document.getElementById("analyticsChart");
+      try {
+        const r = await fetch(`/api/analytics/messages/${gid}?days=14`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const { messages } = await r.json();
+          if (!messages || messages.length === 0) {
+            chartEl.innerHTML = '<span class="muted" style="font-size: 0.82rem;">No message data yet.</span>';
+          } else {
+            const max = Math.max(...messages.map(m => m.count), 1);
+            chartEl.innerHTML = messages.map(m => {
+              const pct = Math.max((m.count / max) * 100, 2);
+              const label = m.date ? m.date.slice(5) : "";
+              return `<div class="chart-bar-col"><span class="chart-bar-value">${m.count}</span><div class="chart-bar" style="height:${pct}%"></div><span class="chart-bar-label">${esc(label)}</span></div>`;
+            }).join("");
+          }
+        }
+      } catch { chartEl.innerHTML = '<span class="muted">Failed to load.</span>'; }
+
+      // Peak activity hours chart
+      const peakEl = document.getElementById("analyticsPeakHours");
+      try {
+        const r = await fetch(`/api/analytics/peak-hours/${gid}?days=7`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const { hours } = await r.json();
+          if (!hours || hours.every(h => h.count === 0)) {
+            peakEl.innerHTML = '<span class="muted" style="font-size: 0.82rem;">No data yet.</span>';
+          } else {
+            const max = Math.max(...hours.map(h => h.count), 1);
+            peakEl.innerHTML = hours.map(h => {
+              const pct = Math.max((h.count / max) * 100, 2);
+              const label = String(h.hour).padStart(2, "0");
+              const intensity = h.count / max;
+              const opacity = 0.3 + intensity * 0.7;
+              return `<div class="chart-bar-col"><span class="chart-bar-value">${h.count || ""}</span><div class="chart-bar" style="height:${pct}%;opacity:${opacity}"></div><span class="chart-bar-label">${label}</span></div>`;
+            }).join("");
+          }
+        }
+      } catch { peakEl.innerHTML = '<span class="muted">Failed to load.</span>'; }
+
+      // Cache status
+      try {
+        const r = await fetch(`/api/analytics/cache-status/${gid}`, fetchOpts({ headers: headers() }));
+        if (r.ok) {
+          const cs = await r.json();
+          const statusEl = document.getElementById("analyticsCacheStatus");
+          if (cs.done > 0 || cs.inProgress > 0) {
+            const parts = [];
+            if (cs.total > 0) parts.push(`${cs.total.toLocaleString()} msgs cached`);
+            if (cs.done > 0) parts.push(`${cs.done} channels done`);
+            if (cs.inProgress > 0) parts.push(`${cs.inProgress} in progress`);
+            if (cs.pending > 0) parts.push(`${cs.pending} pending`);
+            statusEl.textContent = parts.join(" · ");
+          } else {
+            statusEl.textContent = "No messages cached yet";
+          }
+          // Show progress bar if in progress
+          const progressBar = document.getElementById("cacheProgressBar");
+          if (cs.inProgress > 0) {
+            progressBar.style.display = "block";
+            const pct = cs.channels > 0 ? Math.round(((cs.done) / cs.channels) * 100) : 0;
+            document.getElementById("cacheProgressFill").style.width = pct + "%";
+            document.getElementById("cacheProgressText").textContent = `${cs.done}/${cs.channels} channels · ${cs.total.toLocaleString()} messages`;
+          } else {
+            progressBar.style.display = "none";
+          }
+        }
+      } catch {}
+
+      // Update timestamp
+      document.getElementById("analyticsLastUpdate").textContent = new Date().toLocaleTimeString();
+    };
+
+    guildSelect.onchange = () => {
+      if (_analyticsInterval) { clearInterval(_analyticsInterval); _analyticsInterval = null; }
+      load();
+      // Auto-refresh every 30 seconds
+      _analyticsInterval = setInterval(load, 30_000);
+    };
+    load();
+    if (guildSelect.value) {
+      _analyticsInterval = setInterval(load, 30_000);
+    }
+
+    // Cache buttons
+    const startCache = async (reset) => {
+      const gid = guildSelect.value;
+      if (!gid) return;
+      const btn = document.getElementById("cacheMessagesBtn");
+      btn.disabled = true;
+      btn.textContent = "Caching...";
+      try {
+        await fetch(`/api/analytics/cache/${gid}`, fetchOpts({
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ reset }),
+        }));
+        // Poll cache status every 3 seconds while in progress
+        const pollId = setInterval(async () => {
+          try {
+            const r = await fetch(`/api/analytics/cache-status/${gid}`, fetchOpts({ headers: headers() }));
+            if (r.ok) {
+              const cs = await r.json();
+              const progressBar = document.getElementById("cacheProgressBar");
+              progressBar.style.display = "block";
+              const pct = cs.channels > 0 ? Math.round(((cs.done) / cs.channels) * 100) : 0;
+              document.getElementById("cacheProgressFill").style.width = pct + "%";
+              document.getElementById("cacheProgressText").textContent = `${cs.done}/${cs.channels} channels · ${cs.total.toLocaleString()} messages`;
+              document.getElementById("analyticsCacheStatus").textContent = `${cs.total.toLocaleString()} msgs cached · ${cs.done} channels done`;
+              if (cs.inProgress === 0 && cs.pending === 0) {
+                clearInterval(pollId);
+                btn.disabled = false;
+                btn.textContent = "Cache All Messages";
+                progressBar.style.display = "none";
+                load(); // Refresh all stats
+              }
+            }
+          } catch {}
+        }, 3000);
       } catch (e) {
-        listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`;
+        btn.disabled = false;
+        btn.textContent = "Cache All Messages";
       }
     };
-    guildSelect.onchange = loadWarnings;
-    loadWarnings();
+    document.getElementById("cacheMessagesBtn").onclick = () => startCache(false);
+    document.getElementById("cacheResetBtn").onclick = () => {
+      if (confirm("This will delete all cached message data and re-crawl every channel. Continue?")) {
+        startCache(true);
+      }
+    };
   }
 
-  // --- Audit Log page (admin) ---
-  async function loadAuditLogPage() {
-    await populateGuildSelect("auditGuildSelect");
-    const guildSelect = document.getElementById("auditGuildSelect");
-    const listEl = document.getElementById("auditLogList");
-    const actionLabels = {
-      warn: "Warning",
-      jail: "Jail",
-      unjail: "Unjail",
-      level_up: "Level Up",
-      clear_warnings: "Clear Warnings",
-      schedule_create: "Schedule Created",
-      schedule_delete: "Schedule Deleted",
-      command_add: "Command Added",
-      command_delete: "Command Deleted",
-    };
-    const loadLog = async () => {
-      const gid = guildSelect.value;
-      if (!gid) { listEl.innerHTML = '<li><span class="muted">Select a server.</span></li>'; return; }
-      listEl.innerHTML = '<li><span class="muted">Loading\u2026</span></li>';
+  // --- Member search helper ---
+  function setupMemberSearch(searchInputId, hiddenInputId, dropdownId, getGuildId) {
+    const searchInput = document.getElementById(searchInputId);
+    const hiddenInput = document.getElementById(hiddenInputId);
+    const dropdown = document.getElementById(dropdownId);
+    let debounceTimer = null;
+
+    searchInput.addEventListener("input", () => {
+      clearTimeout(debounceTimer);
+      const q = searchInput.value.trim();
+      hiddenInput.value = "";
+      if (q.length < 1) { dropdown.classList.remove("open"); return; }
+      debounceTimer = setTimeout(async () => {
+        const gid = getGuildId();
+        if (!gid) return;
+        try {
+          const r = await fetch(`/api/members/${gid}?q=${encodeURIComponent(q)}`, fetchOpts({ headers: headers() }));
+          if (!r.ok) return;
+          const { members } = await r.json();
+          if (!members || members.length === 0) {
+            dropdown.innerHTML = '<div class="member-option muted" style="pointer-events:none;">No members found</div>';
+          } else {
+            dropdown.innerHTML = members.map(m =>
+              `<div class="member-option" data-id="${esc(m.id)}" data-name="${esc(m.displayName)}">
+                <img src="${esc(m.avatar)}" alt="">
+                <span class="member-name">${esc(m.displayName)}</span>
+                <span class="member-id">${esc(m.username)}</span>
+              </div>`
+            ).join("");
+          }
+          dropdown.classList.add("open");
+        } catch {}
+      }, 250);
+    });
+
+    dropdown.addEventListener("click", (e) => {
+      const opt = e.target.closest(".member-option");
+      if (!opt || !opt.dataset.id) return;
+      hiddenInput.value = opt.dataset.id;
+      searchInput.value = opt.dataset.name;
+      dropdown.classList.remove("open");
+    });
+
+    searchInput.addEventListener("blur", () => {
+      setTimeout(() => dropdown.classList.remove("open"), 200);
+    });
+    searchInput.addEventListener("focus", () => {
+      if (dropdown.innerHTML && searchInput.value.trim()) dropdown.classList.add("open");
+    });
+
+    return { clear() { searchInput.value = ""; hiddenInput.value = ""; dropdown.innerHTML = ""; } };
+  }
+
+  // --- Moderation page (admin) ---
+  async function loadModerationPage() {
+    await populateGuildSelect("modGuildSelect");
+    const guildSelect = document.getElementById("modGuildSelect");
+    const content = document.getElementById("modActionsContent");
+
+    const loadWarnings = async (gid) => {
+      const listEl = document.getElementById("modWarningsList");
       try {
-        const r = await fetch(`/api/audit-log/${gid}?limit=100`, fetchOpts({ headers: headers() }));
-        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
-        const data = await r.json();
-        const log = data.log || [];
-        if (log.length === 0) {
-          listEl.innerHTML = '<li><span class="muted">No activity logged yet.</span></li>';
+        const r = await fetch(`/api/warnings/${gid}`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { listEl.innerHTML = '<li class="muted">Could not load warnings.</li>'; return; }
+        const { warnings } = await r.json();
+        if (!warnings || warnings.length === 0) {
+          listEl.innerHTML = '<li class="muted">No warnings in this server.</li>';
           return;
         }
-        listEl.innerHTML = "";
-        for (const entry of log) {
-          const li = document.createElement("li");
-          li.style.cssText = "flex-direction: column; align-items: flex-start;";
-          const date = new Date(entry.timestamp).toLocaleString();
-          const badge = `<span class="audit-badge ${esc(entry.action)}">${esc(actionLabels[entry.action] || entry.action)}</span>`;
-          let detail = "";
-          if (entry.username) detail += ` <strong>${esc(entry.username)}</strong>`;
-          if (entry.moderatorName) detail += ` <span class="muted">by ${esc(entry.moderatorName)}</span>`;
-          if (entry.reason) detail += ` &mdash; ${esc(entry.reason)}`;
-          if (entry.level) detail += ` reached level <strong>${entry.level}</strong>`;
-          if (entry.count != null) detail += ` (${entry.count} cleared)`;
-          li.innerHTML = `<div>${badge}${detail}</div><div class="muted" style="font-size: 0.75rem; margin-top: 0.2rem;">${esc(date)}</div>`;
-          listEl.appendChild(li);
-        }
-      } catch (e) {
-        listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`;
-      }
+        listEl.innerHTML = warnings.slice(0, 50).map(w => {
+          const date = new Date(w.timestamp).toLocaleString();
+          return `<li style="flex-direction:column;align-items:flex-start;">
+            <div><strong>${esc(w.username)}</strong> <span class="muted" style="font-size:0.78rem;">warned by ${esc(w.moderatorName)}</span></div>
+            <div style="margin-top:0.25rem;">${esc(w.reason)}</div>
+            <div class="muted" style="font-size:0.75rem;margin-top:0.25rem;">${esc(date)} &middot; ID: ${esc(w.id)}</div>
+          </li>`;
+        }).join("");
+      } catch { listEl.innerHTML = '<li class="muted">Failed to load.</li>'; }
     };
-    guildSelect.onchange = loadLog;
+
+    const getGid = () => guildSelect.value;
+    const warnSearch = setupMemberSearch("modWarnUserSearch", "modWarnUser", "modWarnUserDropdown", getGid);
+    const jailSearch = setupMemberSearch("modJailUserSearch", "modJailUser", "modJailUserDropdown", getGid);
+
+    const onGuildChange = () => {
+      const gid = guildSelect.value;
+      if (!gid) { content.style.display = "none"; return; }
+      content.style.display = "block";
+      warnSearch.clear();
+      jailSearch.clear();
+      loadWarnings(gid);
+    };
+    guildSelect.onchange = onGuildChange;
+    onGuildChange();
+
+    // Warn button
+    document.getElementById("modWarnBtn").onclick = async () => {
+      const gid = guildSelect.value;
+      const userId = document.getElementById("modWarnUser").value.trim();
+      const reason = document.getElementById("modWarnReason").value.trim();
+      const status = document.getElementById("modWarnStatus");
+      if (!gid || !userId || !reason) { status.textContent = "Select a user and enter a reason."; status.className = "error"; return; }
+      try {
+        const r = await fetch(`/api/mod/warn/${gid}`, fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ userId, reason }) }));
+        const d = await r.json();
+        if (r.ok) {
+          status.textContent = `Warned. Total: ${d.total}`;
+          status.className = "success";
+          warnSearch.clear();
+          document.getElementById("modWarnReason").value = "";
+          loadWarnings(gid);
+        } else { status.textContent = d.error || "Failed"; status.className = "error"; }
+      } catch (e) { status.textContent = e.message; status.className = "error"; }
+    };
+
+    // Jail button
+    document.getElementById("modJailBtn").onclick = async () => {
+      const gid = guildSelect.value;
+      const userId = document.getElementById("modJailUser").value.trim();
+      const status = document.getElementById("modJailStatus");
+      if (!gid || !userId) { status.textContent = "Select a user."; status.className = "error"; return; }
+      try {
+        const r = await fetch(`/api/mod/jail/${gid}`, fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ userId }) }));
+        const d = await r.json();
+        if (r.ok) { status.textContent = "User jailed."; status.className = "success"; }
+        else { status.textContent = d.error || "Failed"; status.className = "error"; }
+      } catch (e) { status.textContent = e.message; status.className = "error"; }
+    };
+
+    // Unjail button
+    document.getElementById("modUnjailBtn").onclick = async () => {
+      const gid = guildSelect.value;
+      const userId = document.getElementById("modJailUser").value.trim();
+      const status = document.getElementById("modJailStatus");
+      if (!gid || !userId) { status.textContent = "Select a user."; status.className = "error"; return; }
+      try {
+        const r = await fetch(`/api/mod/unjail/${gid}`, fetchOpts({ method: "POST", headers: headers(), body: JSON.stringify({ userId }) }));
+        const d = await r.json();
+        if (r.ok) { status.textContent = "User unjailed."; status.className = "success"; }
+        else { status.textContent = d.error || "Failed"; status.className = "error"; }
+      } catch (e) { status.textContent = e.message; status.className = "error"; }
+    };
+  }
+
+  // --- Mod Log page (admin) ---
+  let _modlogPage = 1;
+  async function loadModLogPage() {
+    await populateGuildSelect("modlogGuildSelect");
+    const guildSelect = document.getElementById("modlogGuildSelect");
+    const content = document.getElementById("modlogContent");
+    _modlogPage = 1;
+
+    const actionLabels = {
+      join: "Join", leave: "Leave", ban: "Ban", unban: "Unban", kick: "Kick",
+      jail: "Jail", unjail: "Unjail", warn: "Warn", mute: "Mute", unmute: "Unmute",
+      role_add: "Role Add", role_remove: "Role Remove", nick_change: "Nick Change",
+      message_delete: "Msg Delete", message_edit: "Msg Edit",
+      voice_join: "Voice Join", voice_leave: "Voice Leave", voice_move: "Voice Move",
+    };
+
+    const loadLog = async () => {
+      const gid = guildSelect.value;
+      if (!gid) { content.style.display = "none"; return; }
+      content.style.display = "block";
+      const listEl = document.getElementById("modlogList");
+      const pagEl = document.getElementById("modlogPagination");
+      listEl.innerHTML = '<li class="muted">Loading\u2026</li>';
+
+      const action = document.getElementById("modlogActionFilter").value;
+      const userId = document.getElementById("modlogUserFilter").value.trim();
+      const params = new URLSearchParams({ page: _modlogPage, limit: 50 });
+      if (action) params.set("action", action);
+      if (userId) params.set("userId", userId);
+
+      try {
+        const r = await fetch(`/api/modlog/${gid}?${params}`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
+        const data = await r.json();
+        const entries = data.entries || [];
+        if (entries.length === 0) {
+          listEl.innerHTML = '<li class="muted">No entries found.</li>';
+          pagEl.innerHTML = "";
+          return;
+        }
+        listEl.innerHTML = entries.map(e => {
+          const date = new Date(e.timestamp).toLocaleString();
+          const badge = `<span class="audit-badge ${esc(e.action)}">${esc(actionLabels[e.action] || e.action)}</span>`;
+          let detail = "";
+          if (e.username) detail += ` <strong>${esc(String(e.username))}</strong>`;
+          if (e.moderatorName && e.moderator_id) detail += ` <span class="muted">by ${esc(String(e.moderatorName))}</span>`;
+          if (e.reason) detail += ` &mdash; ${esc(e.reason)}`;
+          if (e.duration) detail += ` (${esc(e.duration)})`;
+          if (e.extra) detail += ` <span class="muted" style="font-size:0.78rem;">${esc(e.extra.slice(0, 120))}</span>`;
+          return `<li style="flex-direction:column;align-items:flex-start;">
+            <div>${badge}${detail}</div>
+            <div class="muted" style="font-size:0.72rem;margin-top:0.2rem;">${esc(date)}</div>
+          </li>`;
+        }).join("");
+
+        // Pagination
+        const { page, totalPages } = data;
+        if (totalPages <= 1) { pagEl.innerHTML = ""; return; }
+        let pag = "";
+        if (page > 1) pag += `<button class="page-btn" data-p="${page - 1}">&laquo;</button>`;
+        for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
+          pag += `<button class="page-btn${i === page ? " active" : ""}" data-p="${i}">${i}</button>`;
+        }
+        if (page < totalPages) pag += `<button class="page-btn" data-p="${page + 1}">&raquo;</button>`;
+        pagEl.innerHTML = pag;
+        pagEl.querySelectorAll(".page-btn").forEach(btn => {
+          btn.addEventListener("click", () => { _modlogPage = parseInt(btn.dataset.p); loadLog(); });
+        });
+      } catch (e) { listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`; }
+    };
+
+    const modlogMemberSearch = setupMemberSearch("modlogUserSearch", "modlogUserFilter", "modlogUserDropdown", () => guildSelect.value);
+    guildSelect.onchange = () => { _modlogPage = 1; modlogMemberSearch.clear(); loadLog(); };
+    document.getElementById("modlogSearchBtn").onclick = () => { _modlogPage = 1; loadLog(); };
+    document.getElementById("modlogActionFilter").onchange = () => { _modlogPage = 1; loadLog(); };
     loadLog();
+  }
+
+  // --- Confessions page (admin) ---
+  let _confPage = 1;
+  async function loadConfessionsPage() {
+    await populateGuildSelect("confessGuildSelect");
+    const guildSelect = document.getElementById("confessGuildSelect");
+    _confPage = 1;
+
+    const load = async () => {
+      const gid = guildSelect.value;
+      const listEl = document.getElementById("confessionsList");
+      const pagEl = document.getElementById("confessionsPagination");
+      if (!gid) { listEl.innerHTML = '<li class="muted">Select a server.</li>'; pagEl.innerHTML = ""; return; }
+      listEl.innerHTML = '<li class="muted">Loading\u2026</li>';
+
+      try {
+        const r = await fetch(`/api/confessions/${gid}?page=${_confPage}&limit=30`, fetchOpts({ headers: headers() }));
+        if (!r.ok) { listEl.innerHTML = `<li class="muted">Error ${r.status}</li>`; return; }
+        const data = await r.json();
+        const confessions = data.confessions || [];
+        if (confessions.length === 0) {
+          listEl.innerHTML = '<li class="muted">No confessions yet.</li>';
+          pagEl.innerHTML = "";
+          return;
+        }
+        listEl.innerHTML = confessions.map(c => {
+          const date = new Date(c.timestamp).toLocaleString();
+          const userName = c.displayName || c.username || c.user_id || "unknown";
+          const userTag = c.user_id ? `<span class="confession-user" title="ID: ${esc(c.user_id)}">by ${esc(userName)}</span>` : `<span class="confession-user muted">by unknown</span>`;
+          return `<li class="confession-card">
+            <span class="confession-number">Confession #${c.confession_number || c.id}</span>
+            ${userTag}
+            <div class="confession-text">${esc(c.text)}</div>
+            <span class="confession-time">${esc(date)}</span>
+          </li>`;
+        }).join("");
+
+        // Pagination
+        const { page, totalPages } = data;
+        if (totalPages <= 1) { pagEl.innerHTML = ""; return; }
+        let pag = "";
+        if (page > 1) pag += `<button class="page-btn" data-p="${page - 1}">&laquo;</button>`;
+        for (let i = Math.max(1, page - 2); i <= Math.min(totalPages, page + 2); i++) {
+          pag += `<button class="page-btn${i === page ? " active" : ""}" data-p="${i}">${i}</button>`;
+        }
+        if (page < totalPages) pag += `<button class="page-btn" data-p="${page + 1}">&raquo;</button>`;
+        pagEl.innerHTML = pag;
+        pagEl.querySelectorAll(".page-btn").forEach(btn => {
+          btn.addEventListener("click", () => { _confPage = parseInt(btn.dataset.p); load(); });
+        });
+      } catch (e) { listEl.innerHTML = `<li class="muted">Failed: ${esc(e.message)}</li>`; }
+    };
+
+    guildSelect.onchange = () => { _confPage = 1; load(); };
+    load();
   }
 
   // --- Deleted log config ---

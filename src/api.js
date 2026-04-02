@@ -4,16 +4,20 @@ import { fileURLToPath } from "url";
 import { getAllLogChannels, removeLogChannel as removeDeletedLogChannel } from "./deletedLogConfig.js";
 import { list as listSavedMessages, save as saveSavedMessage, get as getSavedMessage, remove as removeSavedMessage, migrateIfNeeded as migrateSavedMessages } from "./savedMessages.js";
 import { list as listCustomCommands, add as addCustomCommand, remove as removeCustomCommand, getPrefix as getCustomCommandPrefix } from "./customCommands.js";
-import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig } from "./jailConfig.js";
+import { getAllConfigs as getAllJailConfigs, removeConfig as removeJailConfig, getConfig as getJailConfig, saveJailedRoles, popJailedRoles } from "./jailConfig.js";
 import { getLeaderboard as getEcoLeaderboard, JOBS, SHOP_ITEMS, QUESTS } from "./economy.js";
 import { hasAnyUser } from "./users.js";
 import { getLeaderboard as getLevelLeaderboard, getStats as getLevelStats, getAllGuildStats } from "./levels.js";
-import { getAllGuildWarnings, getWarnings } from "./warnings.js";
-import { getLog as getAuditLog } from "./auditLog.js";
-import { createStore } from "./storage.js";
+import { getAllGuildWarnings, getWarnings, addWarning } from "./warnings.js";
+import { getLog as getAuditLog, log as auditLog } from "./auditLog.js";
+import { getDb } from "./storage.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerScheduleRoutes } from "./routes/schedules.js";
 import { registerAdminRoutes } from "./routes/admin.js";
+import { getModLogHistory, sendModLog } from "./modLog.js";
+import { getActivitySummary, getCommandStats, getMessageStats, getMemberGrowth, getPeakHours } from "./analytics.js";
+import { getCacheStatus, cacheGuild, resetCacheStatus } from "./messageCache.js";
+import { getConfessionHistory } from "./confessions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -28,15 +32,23 @@ const ADMIN_DISCORD_IDS = (process.env.ADMIN_DISCORD_IDS || "")
 const sessions = new Map();
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, matches cookie Max-Age
 
-const sessionStore = createStore("sessions.json");
+function ensureSessionTable() {
+  getDb().exec(`CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  )`);
+}
 
 function loadSessions() {
   try {
-    const data = sessionStore.load();
+    ensureSessionTable();
+    const db = getDb();
     const now = Date.now();
-    for (const [token, session] of Object.entries(data)) {
-      if (session.expiresAt && session.expiresAt < now) continue;
-      sessions.set(token, session);
+    db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(now);
+    const rows = db.prepare("SELECT token, data FROM sessions").all();
+    for (const row of rows) {
+      sessions.set(row.token, JSON.parse(row.data));
     }
     console.log(`Loaded ${sessions.size} session(s).`);
   } catch (e) {
@@ -44,22 +56,18 @@ function loadSessions() {
   }
 }
 
-function persistSessions() {
-  try {
-    sessionStore.save(Object.fromEntries(sessions));
-  } catch (e) {
-    console.error("Failed to persist sessions:", e);
-  }
-}
-
 function sessionSet(token, data) {
-  sessions.set(token, { ...data, expiresAt: Date.now() + SESSION_MAX_AGE_MS });
-  persistSessions();
+  const sessionData = { ...data, expiresAt: Date.now() + SESSION_MAX_AGE_MS };
+  sessions.set(token, sessionData);
+  try {
+    ensureSessionTable();
+    getDb().prepare("INSERT OR REPLACE INTO sessions (token, data, expires_at) VALUES (?, ?, ?)").run(token, JSON.stringify(sessionData), sessionData.expiresAt);
+  } catch (e) { console.error("Failed to persist session:", e); }
 }
 
 function sessionDelete(token) {
   sessions.delete(token);
-  persistSessions();
+  try { getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token); } catch {}
 }
 
 loadSessions();
@@ -454,6 +462,264 @@ export function createApi(client) {
       res.json({ log: enriched });
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Mod Log History ---
+  app.get("/api/modlog/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { action, userId, page, limit } = req.query;
+      const result = getModLogHistory(req.params.guildId, {
+        action: action || undefined,
+        userId: userId || undefined,
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 50,
+      });
+      // Enrich with usernames from cache
+      result.entries = result.entries.map((e) => {
+        const user = e.user_id ? client?.users?.cache?.get(e.user_id) : null;
+        const mod = e.moderator_id ? client?.users?.cache?.get(e.moderator_id) : null;
+        return {
+          ...e,
+          username: user?.displayName || user?.username || e.user_id,
+          moderatorName: mod?.displayName || mod?.username || e.moderator_id,
+        };
+      });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Analytics ---
+  app.get("/api/analytics/summary/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      res.json(getActivitySummary(req.params.guildId));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/analytics/commands/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const days = parseInt(req.query.days) || 7;
+      res.json({ commands: getCommandStats(req.params.guildId, days) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/analytics/messages/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const days = parseInt(req.query.days) || 7;
+      res.json({ messages: getMessageStats(req.params.guildId, days) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/analytics/growth/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const days = parseInt(req.query.days) || 7;
+      res.json(getMemberGrowth(req.params.guildId, days));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/analytics/peak-hours/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const days = parseInt(req.query.days) || 7;
+      res.json({ hours: getPeakHours(req.params.guildId, days) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Message Cache ---
+  app.get("/api/analytics/cache-status/:guildId", (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      res.json(getCacheStatus(req.params.guildId));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/analytics/cache/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const guild = client?.guilds?.cache?.get(req.params.guildId);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const reset = req.body?.reset === true;
+      if (reset) resetCacheStatus(req.params.guildId);
+      // Start caching in background, return immediately
+      res.json({ ok: true, message: "Cache started. Check status with GET /api/analytics/cache-status/" + req.params.guildId });
+      cacheGuild(guild).then((r) => {
+        console.log(`[API] Message cache complete for ${guild.name}: ${r.totalMessages} messages`);
+      }).catch((e) => console.error("[API] Message cache failed:", e.message));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Mod Actions (from web panel) ---
+  app.post("/api/mod/warn/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const { userId, reason } = req.body || {};
+    if (!userId || !reason) return res.status(400).json({ error: "userId and reason required" });
+    try {
+      const user = getCurrentUser(req);
+      const modId = user?.discordId || "web-panel";
+      const { warning, total } = addWarning(req.params.guildId, userId, reason, modId);
+      auditLog(req.params.guildId, "warn", { userId, moderatorId: modId, reason });
+      sendModLog(client, req.params.guildId, "warn", { userId, moderatorId: modId, reason });
+      res.json({ ok: true, warning, total });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/mod/jail/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    try {
+      const cfg = getJailConfig(req.params.guildId);
+      if (!cfg?.criminalRoleId) return res.status(400).json({ error: "Jail not configured" });
+      const guild = client.guilds.cache.get(req.params.guildId);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const member = await guild.members.fetch(userId);
+      const currentRoleIds = member.roles.cache
+        .filter((r) => r.id !== guild.id && r.id !== cfg.criminalRoleId)
+        .map((r) => r.id);
+      saveJailedRoles(req.params.guildId, userId, currentRoleIds);
+      const rolesToRemove = currentRoleIds.filter((id) => id !== cfg.criminalRoleId);
+      if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
+      await member.roles.add(cfg.criminalRoleId);
+      const user = getCurrentUser(req);
+      const modId = user?.discordId || "web-panel";
+      auditLog(req.params.guildId, "jail", { userId, moderatorId: modId });
+      sendModLog(client, req.params.guildId, "jail", { userId, moderatorId: modId });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/mod/unjail/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    const { userId } = req.body || {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+    try {
+      const cfg = getJailConfig(req.params.guildId);
+      if (!cfg?.criminalRoleId) return res.status(400).json({ error: "Jail not configured" });
+      const guild = client.guilds.cache.get(req.params.guildId);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const member = await guild.members.fetch(userId);
+      if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId);
+      const savedRoles = popJailedRoles(req.params.guildId, userId);
+      if (savedRoles?.length > 0) await member.roles.add(savedRoles);
+      else if (cfg.memberRoleId) await member.roles.add(cfg.memberRoleId);
+      const user = getCurrentUser(req);
+      const modId = user?.discordId || "web-panel";
+      auditLog(req.params.guildId, "unjail", { userId, moderatorId: modId });
+      sendModLog(client, req.params.guildId, "unjail", { userId, moderatorId: modId });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Live Server Stats ---
+  app.get("/api/stats/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const guild = client?.guilds?.cache?.get(req.params.guildId);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+
+      // Fetch members with presence data for accurate online count
+      try { await guild.members.fetch({ withPresences: true }); } catch (_) {}
+
+      const online = guild.members.cache.filter((m) => m.presence?.status && m.presence.status !== "offline").size;
+      const voiceMembers = guild.channels.cache
+        .filter((c) => c.type === 2) // GuildVoice
+        .reduce((sum, c) => sum + c.members.size, 0);
+      res.json({
+        name: guild.name,
+        icon: guild.iconURL({ size: 128 }),
+        memberCount: guild.memberCount,
+        online,
+        voiceMembers,
+        channels: guild.channels.cache.size,
+        roles: guild.roles.cache.size,
+        boostLevel: guild.premiumTier,
+        boostCount: guild.premiumSubscriptionCount || 0,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Guild Members Search ---
+  app.get("/api/members/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const guild = client?.guilds?.cache?.get(req.params.guildId);
+      if (!guild) return res.status(404).json({ error: "Guild not found" });
+      const query = (req.query.q || "").trim().toLowerCase();
+      let members;
+      if (query) {
+        members = guild.members.cache.filter((m) =>
+          m.user.username.toLowerCase().includes(query) ||
+          (m.nickname && m.nickname.toLowerCase().includes(query)) ||
+          m.user.id.includes(query)
+        );
+      } else {
+        members = guild.members.cache;
+      }
+      const result = [...members.values()].slice(0, 50).map((m) => ({
+        id: m.user.id,
+        username: m.user.username,
+        displayName: m.nickname || m.user.globalName || m.user.username,
+        avatar: m.user.displayAvatarURL({ size: 32 }),
+        bot: m.user.bot,
+      })).filter((m) => !m.bot);
+      res.json({ members: result });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Confession Viewer (admin) ---
+  app.get("/api/confessions/:guildId", async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const page = parseInt(req.query.page) || 1;
+      const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+      const data = getConfessionHistory(req.params.guildId, { page, limit });
+      // Resolve user IDs to usernames
+      const guild = client?.guilds?.cache?.get(req.params.guildId);
+      for (const c of data.confessions) {
+        if (c.user_id && guild) {
+          try {
+            const member = guild.members.cache.get(c.user_id) || await guild.members.fetch(c.user_id).catch(() => null);
+            if (member) {
+              c.username = member.user.username;
+              c.displayName = member.nickname || member.user.globalName || member.user.username;
+            }
+          } catch (e) { console.error("Confession user resolve failed:", c.user_id, e.message); }
+        }
+      }
+      res.json(data);
+    } catch (e) {
+      res.json({ confessions: [], total: 0, page: 1, totalPages: 1 });
     }
   });
 

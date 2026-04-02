@@ -1,10 +1,21 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 import { randomBytes } from "crypto";
 import { safeTimeout } from "./safeTimeout.js";
 
-const store = createStore("reminders.json", () => []);
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  getDb().exec(`CREATE TABLE IF NOT EXISTS reminders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    channel_id TEXT,
+    message TEXT,
+    fire_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  )`);
+}
 
-/** @type {Map<string, {clear: Function}>} */
 const timers = new Map();
 let discordClient = null;
 
@@ -28,36 +39,28 @@ function formatMs(ms) {
   return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
 }
 
-/**
- * Initialise reminder system — restores pending reminders from disk.
- * @param {import("discord.js").Client} client
- */
 export function initReminders(client) {
   discordClient = client;
-  const reminders = store.load();
+  ensureTable();
+  const db = getDb();
+  const reminders = db.prepare("SELECT * FROM reminders").all();
   const now = Date.now();
-  let cleaned = false;
   for (const r of reminders) {
-    if (r.fireAt <= now) {
+    if (r.fire_at <= now) {
       fireReminder(r);
-      cleaned = true;
+      db.prepare("DELETE FROM reminders WHERE id = ?").run(r.id);
     } else {
       scheduleTimer(r);
     }
-  }
-  if (cleaned) {
-    store.save(reminders.filter((r) => r.fireAt > now));
   }
   console.log(`Reminders: ${reminders.length} loaded.`);
 }
 
 function scheduleTimer(reminder) {
-  const delay = Math.max(1000, reminder.fireAt - Date.now());
+  const delay = Math.max(1000, reminder.fire_at - Date.now());
   const handle = safeTimeout(() => {
     fireReminder(reminder);
-    // Remove from disk
-    const all = store.load();
-    store.save(all.filter((r) => r.id !== reminder.id));
+    getDb().prepare("DELETE FROM reminders WHERE id = ?").run(reminder.id);
     timers.delete(reminder.id);
   }, delay);
   timers.set(reminder.id, handle);
@@ -66,87 +69,53 @@ function scheduleTimer(reminder) {
 async function fireReminder(reminder) {
   if (!discordClient) return;
   try {
-    // Try to DM the user
-    const user = await discordClient.users.fetch(reminder.userId).catch(() => null);
+    const user = await discordClient.users.fetch(reminder.user_id).catch(() => null);
     if (user) {
       await user.send({
-        embeds: [{
-          color: 0xfee75c,
-          title: "⏰ Reminder!",
-          description: reminder.message || "*(no message)*",
-          footer: { text: `Set ${formatMs(Date.now() - (reminder.createdAt || Date.now()))} ago` },
-        }],
+        embeds: [{ color: 0xfee75c, title: "\u23f0 Reminder!", description: reminder.message || "*(no message)*", footer: { text: `Set ${formatMs(Date.now() - (reminder.created_at || Date.now()))} ago` } }],
       }).catch(() => {});
     }
-    // Also send in the original channel if possible
-    if (reminder.channelId) {
-      const channel = await discordClient.channels.fetch(reminder.channelId).catch(() => null);
+    if (reminder.channel_id) {
+      const channel = await discordClient.channels.fetch(reminder.channel_id).catch(() => null);
       if (channel?.isTextBased()) {
-        channel.send({
-          content: `<@${reminder.userId}>`,
-          embeds: [{
-            color: 0xfee75c,
-            description: `⏰ **Reminder:** ${reminder.message || "*(no message)*"}`,
-          }],
-        }).catch(() => {});
+        channel.send({ content: `<@${reminder.user_id}>`, embeds: [{ color: 0xfee75c, description: `\u23f0 **Reminder:** ${reminder.message || "*(no message)*"}` }] }).catch(() => {});
       }
     }
-  } catch (e) {
-    console.error("Reminder fire failed:", e.message);
-  }
+  } catch (e) { console.error("Reminder fire failed:", e.message); }
 }
 
-/**
- * Create a reminder.
- * @returns {{ ok: boolean, error?: string, id?: string, fireAt?: number }}
- */
 export function createReminder(userId, channelId, timeStr, message) {
   const ms = parseTime(timeStr);
   if (!ms) return { ok: false, error: "Invalid time. Use: `30s`, `5m`, `2h`, `1d`" };
   if (ms < 10_000) return { ok: false, error: "Minimum reminder time is 10 seconds." };
   if (ms > 30 * 86_400_000) return { ok: false, error: "Maximum reminder time is 30 days." };
 
-  const all = store.load();
-  const userReminders = all.filter((r) => r.userId === userId);
-  if (userReminders.length >= MAX_REMINDERS_PER_USER) {
-    return { ok: false, error: `You can have at most ${MAX_REMINDERS_PER_USER} reminders.` };
-  }
+  ensureTable();
+  const db = getDb();
+  const userCount = db.prepare("SELECT COUNT(*) AS cnt FROM reminders WHERE user_id = ?").get(userId).cnt;
+  if (userCount >= MAX_REMINDERS_PER_USER) return { ok: false, error: `You can have at most ${MAX_REMINDERS_PER_USER} reminders.` };
 
-  const reminder = {
-    id: randomBytes(4).toString("hex"),
-    userId,
-    channelId,
-    message: message.slice(0, 500),
-    fireAt: Date.now() + ms,
-    createdAt: Date.now(),
-  };
-
-  all.push(reminder);
-  store.save(all);
+  const reminder = { id: randomBytes(4).toString("hex"), user_id: userId, channel_id: channelId, message: message.slice(0, 500), fire_at: Date.now() + ms, created_at: Date.now() };
+  db.prepare("INSERT INTO reminders (id, user_id, channel_id, message, fire_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(reminder.id, reminder.user_id, reminder.channel_id, reminder.message, reminder.fire_at, reminder.created_at);
   scheduleTimer(reminder);
-
-  return { ok: true, id: reminder.id, fireAt: reminder.fireAt };
+  return { ok: true, id: reminder.id, fireAt: reminder.fire_at };
 }
 
-/**
- * List a user's active reminders.
- */
 export function listReminders(userId) {
-  return store.load().filter((r) => r.userId === userId && r.fireAt > Date.now());
+  ensureTable();
+  return getDb().prepare("SELECT id, message, fire_at AS fireAt FROM reminders WHERE user_id = ? AND fire_at > ? ORDER BY fire_at ASC").all(userId, Date.now());
 }
 
-/**
- * Cancel a reminder by ID.
- */
 export function cancelReminder(userId, reminderId) {
-  const all = store.load();
-  const idx = all.findIndex((r) => r.id === reminderId && r.userId === userId);
-  if (idx === -1) return false;
-  all.splice(idx, 1);
-  store.save(all);
-  const timer = timers.get(reminderId);
-  if (timer) { timer.clear(); timers.delete(reminderId); }
-  return true;
+  ensureTable();
+  const changes = getDb().prepare("DELETE FROM reminders WHERE id = ? AND user_id = ?").run(reminderId, userId).changes;
+  if (changes > 0) {
+    const timer = timers.get(reminderId);
+    if (timer) { timer.clear(); timers.delete(reminderId); }
+    return true;
+  }
+  return false;
 }
 
 export { parseTime, formatMs };

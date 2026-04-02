@@ -1,44 +1,61 @@
-import { createStore } from "./storage.js";
+import { getDb } from "./storage.js";
 
-const configStore = createStore("jail-config.json");
-const jailedStore = createStore("jailed-users.json");
+let _init = false;
+function ensureTable() {
+  if (_init) return;
+  _init = true;
+  const db = getDb();
+  db.exec(`CREATE TABLE IF NOT EXISTS jail_config (
+    guild_id TEXT PRIMARY KEY,
+    member_role_id TEXT,
+    criminal_role_id TEXT,
+    allowed_role_ids TEXT DEFAULT '[]'
+  )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS jailed_users (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role_ids TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (guild_id, user_id)
+  )`);
+}
 
 export function getConfig(guildId) {
-  return configStore.load()[guildId] || null;
+  ensureTable();
+  const row = getDb().prepare("SELECT * FROM jail_config WHERE guild_id = ?").get(guildId);
+  if (!row) return null;
+  return { memberRoleId: row.member_role_id, criminalRoleId: row.criminal_role_id, allowedRoleIds: JSON.parse(row.allowed_role_ids || "[]") };
 }
 
 export function setConfig(guildId, memberRoleId, criminalRoleId, allowedRoleIds = []) {
-  const all = configStore.load();
-  all[guildId] = { memberRoleId, criminalRoleId, allowedRoleIds };
-  configStore.save(all);
+  ensureTable();
+  getDb().prepare("INSERT OR REPLACE INTO jail_config (guild_id, member_role_id, criminal_role_id, allowed_role_ids) VALUES (?, ?, ?, ?)")
+    .run(guildId, memberRoleId, criminalRoleId, JSON.stringify(allowedRoleIds));
 }
 
 export function removeConfig(guildId) {
-  const all = configStore.load();
-  if (!(guildId in all)) return false;
-  delete all[guildId];
-  configStore.save(all);
-  return true;
+  ensureTable();
+  return getDb().prepare("DELETE FROM jail_config WHERE guild_id = ?").run(guildId).changes > 0;
 }
 
 export function getAllConfigs() {
-  return configStore.load();
+  ensureTable();
+  const rows = getDb().prepare("SELECT * FROM jail_config").all();
+  const result = {};
+  for (const row of rows) {
+    result[row.guild_id] = { memberRoleId: row.member_role_id, criminalRoleId: row.criminal_role_id, allowedRoleIds: JSON.parse(row.allowed_role_ids || "[]") };
+  }
+  return result;
 }
 
 export function saveJailedRoles(guildId, userId, roleIds) {
-  const all = jailedStore.load();
-  if (!all[guildId]) all[guildId] = {};
-  all[guildId][userId] = roleIds;
-  jailedStore.save(all);
+  ensureTable();
+  getDb().prepare("INSERT OR REPLACE INTO jailed_users (guild_id, user_id, role_ids) VALUES (?, ?, ?)").run(guildId, userId, JSON.stringify(roleIds));
 }
 
 export function popJailedRoles(guildId, userId) {
-  const all = jailedStore.load();
-  const roles = all[guildId]?.[userId] ?? null;
-  if (roles) {
-    delete all[guildId][userId];
-    if (Object.keys(all[guildId]).length === 0) delete all[guildId];
-    jailedStore.save(all);
-  }
-  return roles;
+  ensureTable();
+  const row = getDb().prepare("SELECT role_ids FROM jailed_users WHERE guild_id = ? AND user_id = ?").get(guildId, userId);
+  if (!row) return null;
+  getDb().prepare("DELETE FROM jailed_users WHERE guild_id = ? AND user_id = ?").run(guildId, userId);
+  return JSON.parse(row.role_ids);
 }

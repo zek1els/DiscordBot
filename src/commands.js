@@ -297,6 +297,147 @@ export const modlogOffCommand = {
   description: "Disable mod logging",
 };
 
+export const reactionRoleCommand = {
+  name: "reactionrole",
+  description: "Manage reaction roles",
+  options: [
+    {
+      name: "add", type: 1, description: "Add a reaction role to a message",
+      options: [
+        { name: "channel", type: 7, description: "Channel the message is in", required: true },
+        { name: "message_id", type: 3, description: "Message ID", required: true },
+        { name: "emoji", type: 3, description: "Emoji (e.g. or custom emoji name)", required: true },
+        { name: "role", type: 8, description: "Role to assign", required: true },
+      ],
+    },
+    {
+      name: "remove", type: 1, description: "Remove a reaction role",
+      options: [
+        { name: "message_id", type: 3, description: "Message ID", required: true },
+        { name: "emoji", type: 3, description: "Emoji to remove", required: true },
+      ],
+    },
+    { name: "list", type: 1, description: "List all reaction roles" },
+  ],
+};
+
+export const automodCommand = {
+  name: "automod",
+  description: "Configure auto-moderation",
+  options: [
+    { name: "enable", type: 1, description: "Enable auto-mod" },
+    { name: "disable", type: 1, description: "Disable auto-mod" },
+    {
+      name: "spam", type: 1, description: "Configure spam filter",
+      options: [
+        { name: "max_messages", type: 4, description: "Max messages in interval (default: 5)", required: false },
+        { name: "interval", type: 4, description: "Interval in seconds (default: 5)", required: false },
+        { name: "action", type: 3, description: "Action to take", required: false, choices: [
+          { name: "Mute (5 min)", value: "mute" }, { name: "Kick", value: "kick" },
+          { name: "Delete only", value: "delete" }, { name: "Warn (log only)", value: "warn" },
+        ]},
+      ],
+    },
+    {
+      name: "links", type: 1, description: "Configure link filter",
+      options: [
+        { name: "enabled", type: 5, description: "Enable or disable", required: true },
+        { name: "action", type: 3, description: "Action to take", required: false, choices: [
+          { name: "Delete", value: "delete" }, { name: "Mute", value: "mute" }, { name: "Warn", value: "warn" },
+        ]},
+      ],
+    },
+    {
+      name: "words", type: 1, description: "Manage word blacklist",
+      options: [
+        { name: "action", type: 3, description: "Add or remove a word", required: true, choices: [
+          { name: "Add", value: "add" }, { name: "Remove", value: "remove" }, { name: "List", value: "list" },
+        ]},
+        { name: "word", type: 3, description: "The word to add/remove", required: false },
+      ],
+    },
+    {
+      name: "log", type: 1, description: "Set auto-mod log channel",
+      options: [
+        { name: "channel", type: 7, description: "Channel for auto-mod logs", required: true },
+      ],
+    },
+  ],
+};
+
+export const tempvoiceCommand = {
+  name: "tempvoice",
+  description: "Temporary voice channels",
+  options: [
+    {
+      name: "setup", type: 1, description: "Set up Join-to-Create voice channels",
+      options: [
+        { name: "channel", type: 7, description: "The 'Join to Create' voice channel", required: true },
+        { name: "category", type: 7, description: "Category for temp channels", required: true },
+        { name: "name_template", type: 3, description: "Channel name template ({user} = username)", required: false },
+      ],
+    },
+    { name: "disable", type: 1, description: "Disable temp voice channels" },
+    {
+      name: "name", type: 1, description: "Rename your temp channel",
+      options: [{ name: "new_name", type: 3, description: "New channel name", required: true }],
+    },
+    {
+      name: "limit", type: 1, description: "Set user limit for your temp channel",
+      options: [{ name: "number", type: 4, description: "Max users (0 = unlimited)", required: true, min_value: 0, max_value: 99 }],
+    },
+    { name: "lock", type: 1, description: "Lock your temp channel" },
+    { name: "unlock", type: 1, description: "Unlock your temp channel" },
+  ],
+};
+
+export const levelsConfigCommand = {
+  name: "levels",
+  description: "Configure the leveling system",
+  default_member_permissions: "32", // MANAGE_SERVER
+  options: [
+    {
+      name: "role-reward", type: 2, description: "Manage level role rewards",
+      options: [
+        {
+          name: "add", type: 1, description: "Add a role reward at a specific level",
+          options: [
+            { name: "level", type: 4, description: "Level to grant the role at", required: true, min_value: 1 },
+            { name: "role", type: 8, description: "Role to grant", required: true },
+          ],
+        },
+        {
+          name: "remove", type: 1, description: "Remove a role reward",
+          options: [
+            { name: "level", type: 4, description: "Level to remove the reward from", required: true },
+          ],
+        },
+        { name: "list", type: 1, description: "List all role rewards" },
+      ],
+    },
+    {
+      name: "announce", type: 1, description: "Set level-up announcement channel",
+      options: [
+        { name: "channel", type: 7, description: "Channel for level-up messages (leave empty to use same channel)", required: false },
+      ],
+    },
+  ],
+};
+
+export const cacheMessagesCommand = {
+  name: "cache-messages",
+  description: "Cache all server message history into analytics (admin only, may take a while)",
+  default_member_permissions: "8", // ADMINISTRATOR
+  options: [
+    {
+      name: "reset",
+      type: 5, // Boolean
+      description: "Reset and re-cache everything (default: skip already-cached channels)",
+      required: false,
+    },
+  ],
+};
+
 export const slashCommands = [
   sendCommand, scheduleCommand, messageCommand, logDeletesCommand,
   jailSetupCommand, jailAssignAllCommand,
@@ -306,4 +447,6 @@ export const slashCommands = [
   starboardCommand, welcomeCommand, leaveCommand, ticketSetupCommand,
   confessSetupCommand, confessOffCommand, confessCommand,
   modlogSetupCommand, modlogOffCommand,
+  reactionRoleCommand, automodCommand, tempvoiceCommand,
+  levelsConfigCommand, cacheMessagesCommand,
 ];

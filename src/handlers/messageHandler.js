@@ -1,7 +1,7 @@
 import { list as listCustomCommands, get as getCustomCommand } from "../customCommands.js";
 import { handleEconomyCommand, ECONOMY_COMMAND_NAMES } from "../economyCommands.js";
 import { getConfig as getJailConfig, saveJailedRoles, popJailedRoles } from "../jailConfig.js";
-import { awardMessageXp } from "../levels.js";
+import { awardMessageXp, getLevelConfig, getRoleRewardsUpToLevel } from "../levels.js";
 import { addWarning, getWarnings } from "../warnings.js";
 import { log as auditLog } from "../auditLog.js";
 import { handleMusicCommand, MUSIC_COMMANDS } from "../musicCommands.js";
@@ -15,10 +15,9 @@ import { openTicket, closeTicket } from "../ticketSystem.js";
 import { getSnipe, getEditSnipe } from "../snipe.js";
 import { parseTime } from "../reminders.js";
 import { sendModLog } from "../modLog.js";
-import { safeTimeout } from "../safeTimeout.js";
-
-// Timed jail auto-unjail timers  (value = { clear() } from safeTimeout)
-const jailTimers = new Map();
+import { checkMessage as checkAutomod, executeAction as executeAutomodAction } from "../automod.js";
+import { trackEvent } from "../analytics.js";
+import { addTimedJail, removeTimedJail } from "../timedJails.js";
 
 // Accept both ASCII "!" and fullwidth "！" (U+FF01) as custom-command prefix
 const CUSTOM_CMD_PREFIXES = ["!", "\uFF01"];
@@ -88,6 +87,15 @@ export async function handleMessage(message) {
     await handleAfkCheck(message);
   }
 
+  // Auto-mod check (runs before built-in spam check)
+  if (guildId) {
+    const automodResult = checkAutomod(message);
+    if (automodResult) {
+      await executeAutomodAction(message, automodResult);
+      return;
+    }
+  }
+
   // Anti-spam check (only in guilds)
   if (guildId && message.channelId) {
     const spamIds = trackAndDetectSpam(guildId, message.channelId, message.author.id, content, message.id);
@@ -121,14 +129,35 @@ export async function handleMessage(message) {
     }
   }
 
-  // XP award
+  // XP award + analytics
   if (guildId) {
+    trackEvent(guildId, "message_sent", { userId: message.author.id, channelId: message.channelId });
     const result = awardMessageXp(guildId, message.author.id);
     if (result?.leveledUp) {
-      message.channel.send({
+      let roleText = "";
+      // Grant any role rewards
+      if (result.roleRewards?.length > 0) {
+        try {
+          const member = await message.guild.members.fetch(message.author.id);
+          for (const reward of result.roleRewards) {
+            if (!member.roles.cache.has(reward.role_id)) {
+              await member.roles.add(reward.role_id).catch(() => {});
+              roleText += `\n\u2b50 Earned role: <@&${reward.role_id}>`;
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Check if there's a configured announce channel
+      const lvlConfig = getLevelConfig(guildId);
+      const announceChannel = lvlConfig.announceChannelId
+        ? (message.guild.channels.cache.get(lvlConfig.announceChannelId) || message.channel)
+        : message.channel;
+
+      announceChannel.send({
         embeds: [{
           color: 0x5865f2,
-          description: `🎉 <@${message.author.id}> reached **Level ${result.newLevel}**!`,
+          description: `\ud83c\udf89 <@${message.author.id}> reached **Level ${result.newLevel}**!${roleText}`,
         }],
       }).catch(() => {});
       auditLog(guildId, "level_up", { userId: message.author.id, level: result.newLevel });
@@ -333,7 +362,7 @@ export async function handleMessage(message) {
         await message.channel.send({
           embeds: [{
             color: 0xed4245,
-            description: `🔒 <@${target.id}> has been jailed${timeMsg}.`,
+            description: `\ud83d\udd12 <@${target.id}> has been jailed${timeMsg}.`,
           }],
         });
         auditLog(guildId, "jail", { userId: target.id, moderatorId: message.author.id });
@@ -343,37 +372,13 @@ export async function handleMessage(message) {
           duration: durationLabel || "Permanent",
         });
 
-        // Set auto-unjail timer if duration specified
+        // Set persistent auto-unjail timer if duration specified
         if (durationMs) {
-          const timerKey = `${guildId}:${target.id}`;
-          // Clear existing timer if any
-          if (jailTimers.has(timerKey)) jailTimers.get(timerKey).clear();
-          const handle = safeTimeout(async () => {
-            jailTimers.delete(timerKey);
-            try {
-              const m = await message.guild.members.fetch(target.id);
-              if (cfg.criminalRoleId) await m.roles.remove(cfg.criminalRoleId);
-              const saved = popJailedRoles(guildId, target.id);
-              if (saved && saved.length > 0) await m.roles.add(saved);
-              else if (cfg.memberRoleId) await m.roles.add(cfg.memberRoleId);
-              message.channel.send({
-                embeds: [{ color: 0x57f287, description: `🔓 <@${target.id}> has been automatically unjailed (${durationLabel} elapsed).` }],
-              }).catch(() => {});
-              auditLog(guildId, "unjail", { userId: target.id, moderatorId: "auto-timer" });
-              sendModLog(_client, guildId, "unjail", { userId: target.id, moderatorId: "auto-timer", reason: `Auto-unjail after ${durationLabel}` });
-            } catch (e) {
-              console.error("Auto-unjail failed:", e.message);
-            }
-          }, durationMs);
-          jailTimers.set(timerKey, handle);
+          addTimedJail(_client, message.guild, target.id, message.channelId, durationMs, durationLabel);
         }
       } else {
-        // Clear any pending auto-unjail timer
-        const timerKey = `${guildId}:${target.id}`;
-        if (jailTimers.has(timerKey)) {
-          jailTimers.get(timerKey).clear();
-          jailTimers.delete(timerKey);
-        }
+        // Clear any pending auto-unjail timer (persistent)
+        removeTimedJail(guildId, target.id);
         if (cfg.criminalRoleId) await member.roles.remove(cfg.criminalRoleId);
         const savedRoles = popJailedRoles(message.guild.id, target.id);
         if (savedRoles && savedRoles.length > 0) {
